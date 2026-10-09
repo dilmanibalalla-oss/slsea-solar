@@ -1,70 +1,125 @@
-const { Reading } = require("../models");
-const { noQuery, validateId } = require("../validators");
-const { sendRepresentation } = require("../utils/http");
-const { authorizedScope, accessibleResource } = require("../services/scope");
-const { handlers, listNested } = require("./metadata");
-async function generationSummary(req, res) {
+const { District, Substation, Reading } = require("../models");
+const { nextId } = require("../models/counter");
+const { districtSchema, parseId, noQuery, requireJson } = require("../validators");
+const present = require("../presenters");
+const scope = require("../services/scope");
+const { fail } = require("../middleware/errors");
+
+async function list(req, res) {
   noQuery(req);
-  const id = validateId(req.params.id);
-  const district = await accessibleResource(req.auth, "districts", id);
-  const scope = await authorizedScope(req.auth, { district: id });
-  const installationIds = scope.installations.map((row) => row._id);
-  const now = new Date();
-  const offsetMs = 330 * 60 * 1000;
-  const local = new Date(now.getTime() + offsetMs);
-  const dayStart = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) - offsetMs);
-  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-  async function lastPerInstallation(extra) {
-    return Reading.aggregate([
-      { $match: { installation: { $in: installationIds }, ...extra } },
-      { $sort: { installation: 1, timestamp: -1 } },
-      { $group: { _id: "$installation", reading: { $first: "$$ROOT" } } }
+  const rows = await scope.listDistricts(req.auth.user);
+  res.json(rows.map(present.district));
+}
+
+async function getOne(req, res) {
+  noQuery(req);
+  const id = parseId(req.params.id);
+  const row = await scope.requireDistrict(req.auth.user, id);
+  res.json(present.district(row));
+}
+
+async function create(req, res) {
+  noQuery(req);
+  requireJson(req);
+  const body = districtSchema.parse(req.body);
+  const row = await District.create({
+    id: await nextId("district"),
+    ...body,
+    code: body.code.toUpperCase()
+  });
+  res.status(201).json(present.district(row.toObject()));
+}
+
+async function replace(req, res) {
+  noQuery(req);
+  requireJson(req);
+  const id = parseId(req.params.id);
+  const body = districtSchema.parse(req.body);
+  const current = await District.findOne({ id }).lean();
+  if (!current) fail(404, "RESOURCE_NOT_FOUND", "District not found");
+  const row = await District.findOneAndUpdate(
+    { id },
+    { name: body.name, code: body.code.toUpperCase(), province_id: body.province_id },
+    { new: true }
+  ).lean();
+  res.json(present.district(row));
+}
+
+async function patch(req, res) {
+  noQuery(req);
+  requireJson(req);
+  const id = parseId(req.params.id);
+  const body = districtSchema.partial().parse(req.body);
+  if (Object.keys(body).length === 0) fail(400, "VALIDATION_ERROR", "Validation failed");
+  const current = await District.findOne({ id }).lean();
+  if (!current) fail(404, "RESOURCE_NOT_FOUND", "District not found");
+  if (body.code) body.code = body.code.toUpperCase();
+  const row = await District.findOneAndUpdate({ id }, { $set: body }, { new: true }).lean();
+  res.json(present.district(row));
+}
+
+async function remove(req, res) {
+  noQuery(req);
+  const id = parseId(req.params.id);
+  const current = await District.findOne({ id }).lean();
+  if (!current) fail(404, "RESOURCE_NOT_FOUND", "District not found");
+  const child = await Substation.exists({ district_id: id });
+  if (child) fail(409, "RESOURCE_HAS_CHILDREN", "Remove dependent resources before deleting this resource");
+  await District.deleteOne({ id });
+  res.status(204).end();
+}
+
+async function listSubstations(req, res) {
+  noQuery(req);
+  const id = parseId(req.params.id);
+  await scope.requireDistrict(req.auth.user, id);
+  const rows = await scope.listSubstations(req.auth.user, id);
+  res.json(rows.map(present.substation));
+}
+
+async function summary(req, res) {
+  noQuery(req);
+  const id = parseId(req.params.id);
+  const district = await scope.requireDistrict(req.auth.user, id);
+  const substations = await scope.listSubstations(req.auth.user, id);
+  const scoped = await scope.listInstallations(req.auth.user).then((rows) => {
+    const allowed = new Set(substations.map((row) => row.id));
+    return rows.filter((row) => allowed.has(row.substation_id));
+  });
+  const installationIds = scoped.map((row) => row.id);
+  let current_power_kw = 0;
+  let total_energy_kwh = 0;
+  let peak_power_kw = 0;
+  if (installationIds.length) {
+    const latest = await Reading.aggregate([
+      { $match: { installation_id: { $in: installationIds } } },
+      { $sort: { timestamp: -1 } },
+      {
+        $group: {
+          _id: "$installation_id",
+          power_kw: { $first: "$power_kw" },
+          cumulative_energy_kwh: { $first: "$cumulative_energy_kwh" }
+        }
+      }
     ]);
-  }
-  const [latest, baselines, today] = await Promise.all([
-    lastPerInstallation({ timestamp: { $lte: now } }),
-    lastPerInstallation({ timestamp: { $lte: dayStart } }),
-    lastPerInstallation({ timestamp: { $gte: dayStart, $lt: dayEnd, $lte: now } })
-  ]);
-  const baselineMap = new Map(baselines.map((row) => [String(row._id), row.reading]));
-  let currentPowerKw = 0;
-  let freshInstallationCount = 0;
-  let newestTimestamp = null;
-  for (const row of latest) {
-    const timestamp = new Date(row.reading.timestamp);
-    const age = now - timestamp;
-    if (age <= 30 * 60 * 1000) {
-      currentPowerKw += row.reading.powerKw;
-      freshInstallationCount++;
+    for (const row of latest) {
+      current_power_kw += row.power_kw || 0;
+      total_energy_kwh += row.cumulative_energy_kwh || 0;
     }
-    if (!newestTimestamp || timestamp > newestTimestamp) newestTimestamp = timestamp;
+    const peak = await Reading.aggregate([
+      { $match: { installation_id: { $in: installationIds } } },
+      { $group: { _id: null, peak: { $max: "$power_kw" } } }
+    ]);
+    peak_power_kw = peak[0] ? peak[0].peak : 0;
   }
-  let observedEnergyKwh = 0;
-  let energyCoveredInstallationCount = 0;
-  for (const row of today) {
-    const baseline = baselineMap.get(String(row._id));
-    if (baseline && dayStart - new Date(baseline.timestamp) <= 30 * 60 * 1000) {
-      observedEnergyKwh += Math.max(0, row.reading.cumulativeEnergyKwh - baseline.cumulativeEnergyKwh);
-      energyCoveredInstallationCount++;
-    }
-  }
-  const referenceSlot = new Date(Math.floor(now.getTime() / (30 * 60 * 1000)) * (30 * 60 * 1000));
-  sendRepresentation(req, res, {
-    district: { _id: district._id, name: district.name },
-    timezone: "Asia/Colombo", dayStart, dayEnd, referenceSlot,
-    latestReadingTimestamp: newestTimestamp,
-    installationCount: installationIds.length,
-    reportingInstallationCount: latest.length,
-    freshInstallationCount,
-    staleOrMissingInstallationCount: installationIds.length - freshInstallationCount,
-    currentPowerKw: Number(currentPowerKw.toFixed(3)),
-    observedEnergyTodayKwh: Number(observedEnergyKwh.toFixed(3)),
-    energyCoveredInstallationCount,
-    energyCoverageComplete: energyCoveredInstallationCount === installationIds.length
+  res.json({
+    district_id: district.id,
+    district_name: district.name,
+    total_installations: scoped.length,
+    current_power_kw: Number(current_power_kw.toFixed(3)),
+    total_energy_kwh: Number(total_energy_kwh.toFixed(3)),
+    peak_power_kw: Number(Number(peak_power_kw).toFixed(3))
   });
 }
-module.exports = {
-  ...handlers("districts"),
-  listSubstations: listNested("districts", "substations", "district"),
-  generationSummary
-};
+
+module.exports = { list, getOne, create, replace, patch, remove, listSubstations, summary };

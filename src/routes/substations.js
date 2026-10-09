@@ -1,12 +1,6 @@
 const express = require("express");
-const { requireReader, requireAdmin } = require("../middleware/auth");
+const { authenticateUser, requireReader } = require("../middleware/auth");
 const substations = require("../controllers/substations");
 const router = express.Router();
-router.get("/substations", requireReader, substations.list);
-router.get("/substations/:id", requireReader, substations.getOne);
-router.post("/substations", requireAdmin, substations.create);
-router.put("/substations/:id", requireAdmin, substations.replace);
-router.patch("/substations/:id", requireAdmin, substations.patch);
-router.delete("/substations/:id", requireAdmin, substations.remove);
-router.get("/substations/:id/installations", requireReader, substations.listInstallations);
+router.get("/substations/:id/solar/v1/installations", authenticateUser, requireReader, substations.listInstallations);
 module.exports = router;

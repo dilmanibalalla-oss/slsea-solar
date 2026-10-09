@@ -5,5 +5,6 @@ module.exports = {
   Installation: require("./installation"),
   Reading: require("./reading"),
   User: require("./user"),
-  LoginBucket: require("./loginBucket")
+  LoginBucket: require("./loginBucket"),
+  Counter: require("./counter").Counter
 };

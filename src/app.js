@@ -16,9 +16,9 @@ app.use(helmet({
     useDefaults: true,
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
-      imgSrc: ["'self'", "data:", "https://unpkg.com"]
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"]
     }
   }
 }));
@@ -35,34 +35,68 @@ function deploymentPayload(req) {
   };
 }
 
-function swaggerHtml() {
-  const specUrl = `${config.base}/openapi.json`;
-  const assets = "https://unpkg.com/swagger-ui-dist@5.33.1";
+function noStore(res) {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.set("Pragma", "no-cache");
+}
+
+function swaggerHtml(req) {
+  const specJson = JSON.stringify(buildOpenApiDocument(req)).replace(/</g, "\\u003c");
+  const assets = `${config.base}/docs-assets`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Solar Generation API</title>
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>SLSEA Solar Generation API</title>
   <link rel="stylesheet" href="${assets}/swagger-ui.css">
   <link rel="icon" type="image/png" href="${assets}/favicon-32x32.png" sizes="32x32">
 </head>
 <body>
   <div id="swagger-ui"></div>
   <script src="${assets}/swagger-ui-bundle.js"></script>
-  <script src="${assets}/swagger-ui-standalone-preset.js"></script>
   <script>
     window.ui = SwaggerUIBundle({
-      url: ${JSON.stringify(specUrl)},
+      spec: ${specJson},
       dom_id: "#swagger-ui",
       deepLinking: true,
-      persistAuthorization: true,
+      persistAuthorization: false,
       tryItOutEnabled: true,
       displayRequestDuration: true,
-      filter: true,
-      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-      plugins: [SwaggerUIBundle.plugins.DownloadUrl],
-      layout: "StandaloneLayout"
+      filter: false,
+      tagsSorter: (a, b) => {
+        const order = [
+          "Authentication", "Provinces", "Districts", "Substations",
+          "Solar Installations", "Readings"
+        ];
+        return order.indexOf(a) - order.indexOf(b);
+      },
+      operationsSorter: (a, b) => {
+        const order = [
+          "post /solar/v1/auth/login",
+          "get /solar/v1/provinces",
+          "get /solar/v1/provinces/{id}",
+          "get /solar/v1/provinces/{id}/solar/v1/districts",
+          "get /solar/v1/districts",
+          "get /solar/v1/districts/{id}",
+          "get /solar/v1/districts/{id}/solar/v1/substations",
+          "get /solar/v1/districts/{id}/summary",
+          "get /solar/v1/substations/{id}/solar/v1/installations",
+          "get /solar/v1/installations",
+          "get /solar/v1/installations/{id}",
+          "put /solar/v1/installations/{id}",
+          "delete /solar/v1/installations/{id}",
+          "get /solar/v1/installations/{id}/solar/v1/readings/latest",
+          "get /solar/v1/installations/{id}/solar/v1/readings/summary",
+          "get /solar/v1/installations/{id}/solar/v1/readings",
+          "post /solar/v1/installations/{id}/solar/v1/readings"
+        ];
+        const key = (op) => op.get("method") + " " + op.get("path");
+        return order.indexOf(key(a)) - order.indexOf(key(b));
+      },
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: "BaseLayout"
     });
   </script>
 </body>
@@ -90,13 +124,15 @@ app.get(`${config.base}/status`, (req, res) => {
   res.json(deploymentPayload(req));
 });
 app.get(`${config.base}/docs`, (req, res) => {
-  res.type("html").send(swaggerHtml());
+  noStore(res);
+  res.type("html").send(swaggerHtml(req));
 });
 app.use(`${config.base}/docs-assets`, express.static(swaggerUi.absolutePath(), {
   index: false,
   maxAge: "1d"
 }));
 app.get(`${config.base}/openapi.json`, (req, res) => {
+  noStore(res);
   res.json(buildOpenApiDocument(req));
 });
 app.get(`${config.base}/health`, async (req, res) => {
@@ -119,10 +155,8 @@ app.use(config.base, async (req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({
     error: {
-      code: "NOT_FOUND",
-      message: "Resource not found",
-      details: null,
-      requestId: req.requestId
+      code: "RESOURCE_NOT_FOUND",
+      message: "Resource not found"
     }
   });
 });

@@ -7,7 +7,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const request = require("supertest");
 const app = require("../src/app");
-const { apiServers } = require("../src/docs/openapi");
+const { apiServers, buildOpenApiDocument } = require("../src/docs/openapi");
 
 test("root page reports a successful deployment", async () => {
   const response = await request(app).get("/").expect(200);
@@ -15,26 +15,78 @@ test("root page reports a successful deployment", async () => {
   assert.match(response.text, /\/solar\/v1\/docs/);
 });
 
-test("status endpoint is documented for Swagger try-it-out", async () => {
-  const response = await request(app).get("/solar/v1/status").expect(200);
-  assert.equal(response.body.message, "Deployment successful");
-  assert.match(response.body.docs, /\/solar\/v1\/docs$/);
-});
-
 test("swagger ui is served", async () => {
   const response = await request(app).get("/solar/v1/docs").expect(200);
   assert.match(response.text, /swagger-ui/);
 });
 
-test("openapi lists localhost and the deployed server", async () => {
+test("openapi lists localhost and the deployed origin", async () => {
   const response = await request(app).get("/solar/v1/openapi.json").expect(200);
   const urls = response.body.servers.map((server) => server.url);
-  assert.ok(urls.some((url) => url.includes("localhost") && url.endsWith("/solar/v1")));
-  assert.ok(urls.some((url) => url.includes("slsea-solar.vercel.app") && url.endsWith("/solar/v1")));
-  assert.equal(response.body.paths["/status"].get.summary, "Confirm the API is deployed");
+  assert.ok(urls.some((url) => url.includes("localhost")));
+  assert.ok(urls.some((url) => url.includes("slsea-solar.vercel.app")));
 });
 
 test("apiServers always includes local development", () => {
   const servers = apiServers();
-  assert.equal(servers[0].description, "Local development");
+  assert.equal(servers[0].description, "Local SLSEA API");
+});
+
+test("openapi contract: tags, schemas, login, nested paths, security", () => {
+  const spec = buildOpenApiDocument();
+  assert.deepEqual(spec.tags.map((tag) => tag.name), [
+    "Authentication", "Provinces", "Districts", "Substations",
+    "Solar Installations", "Readings"
+  ]);
+  const schemaNames = Object.keys(spec.components.schemas);
+  assert.deepEqual(schemaNames, [
+    "Province", "District", "GridSubstation", "SolarInstallation",
+    "GenerationReading", "CompositeInstallation", "DistrictSummary",
+    "ReadingsHistoryEnvelope", "CreateReadingPayload", "ErrorResponse",
+    "LoginPayload", "LoginResponse"
+  ]);
+  assert.deepEqual(Object.keys(spec.components.schemas.Province.properties), ["id", "name", "code"]);
+  assert.deepEqual(Object.keys(spec.components.schemas.District.properties), ["id", "name", "code", "province_id"]);
+  assert.deepEqual(Object.keys(spec.components.schemas.GridSubstation.properties), ["id", "name", "capacity_mva", "district_id"]);
+  assert.deepEqual(Object.keys(spec.components.schemas.SolarInstallation.properties), [
+    "id", "name", "meter_id", "inverter_id", "substation_id", "latitude", "longitude", "capacity_kw"
+  ]);
+  assert.deepEqual(Object.keys(spec.components.schemas.LoginResponse.properties), [
+    "access_token", "token_type", "message", "user"
+  ]);
+  assert.deepEqual(Object.keys(spec.paths), [
+    "/solar/v1/auth/login",
+    "/solar/v1/provinces",
+    "/solar/v1/provinces/{id}",
+    "/solar/v1/provinces/{id}/solar/v1/districts",
+    "/solar/v1/districts",
+    "/solar/v1/districts/{id}",
+    "/solar/v1/districts/{id}/solar/v1/substations",
+    "/solar/v1/districts/{id}/summary",
+    "/solar/v1/substations/{id}/solar/v1/installations",
+    "/solar/v1/installations",
+    "/solar/v1/installations/{id}",
+    "/solar/v1/installations/{id}/solar/v1/readings/latest",
+    "/solar/v1/installations/{id}/solar/v1/readings/summary",
+    "/solar/v1/installations/{id}/solar/v1/readings"
+  ]);
+  assert.deepEqual(Object.keys(spec.paths["/solar/v1/installations/{id}"]), ["get", "put", "delete"]);
+  assert.deepEqual(Object.keys(spec.paths["/solar/v1/provinces"]), ["get"]);
+  assert.deepEqual(Object.keys(spec.components.securitySchemes), ["UserAuth", "ApiKeyAuth"]);
+  assert.equal(spec.components.securitySchemes.UserAuth.type, "http");
+  assert.equal(spec.components.securitySchemes.UserAuth.scheme, "bearer");
+  assert.equal(spec.components.securitySchemes.UserAuth.bearerFormat, "JWT");
+  assert.equal(spec.components.securitySchemes.ApiKeyAuth.name, "X-API-Key");
+  assert.equal(spec.paths["/solar/v1/provinces"].post, undefined);
+  assert.equal(spec.paths["/solar/v1/substations"], undefined);
+  assert.equal(spec.paths["/solar/v1/auth/login"].post.security.length, 0);
+  assert.deepEqual(spec.paths["/solar/v1/installations/{id}/solar/v1/readings"].post.security, [{ ApiKeyAuth: [] }]);
+  assert.equal(spec.paths["/docs"], undefined);
+  assert.equal(spec.paths["/solar/v1/health"], undefined);
+  assert.equal(spec.components.schemas.TokenRequest, undefined);
+});
+
+test("login schema requires username and password", () => {
+  const { loginSchema } = require("../src/validators");
+  assert.throws(() => loginSchema.parse({}));
 });

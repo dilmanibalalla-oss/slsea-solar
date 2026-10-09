@@ -1,87 +1,145 @@
-const mongoose = require("mongoose");
+const { createHash } = require("node:crypto");
 const config = require("../config");
-const { Installation, Reading } = require("../models");
-const { requireReader, requireDevice } = require("../middleware/auth");
-const { readingSchema, query, validateId, noQuery } = require("../validators");
-const { sendRepresentation, paginate, sendPage } = require("../utils/http");
-const { authorizedScope, accessibleResource } = require("../services/scope");
+const { Reading } = require("../models");
+const { nextId } = require("../models/counter");
+const { readingSchema, historyQuery, parseId, noQuery, requireJson } = require("../validators");
+const present = require("../presenters");
+const scope = require("../services/scope");
 const { fail } = require("../middleware/errors");
-async function readingCollection(req, res, installationId = null) {
-  const options = query(req, true);
-  if (installationId) {
-    await accessibleResource(req.auth, "installations", installationId);
-    if (options.installation && options.installation !== installationId) {
-      fail(400, "CONFLICTING_FILTER", "Installation filter conflicts with URI");
-    }
-    options.installation = installationId;
+
+const SORTABLE = new Set(["timestamp", "id", "power_kw", "cumulative_energy_kwh", "voltage"]);
+
+function entityTag(value) {
+  return `"${createHash("sha256").update(JSON.stringify(value)).digest("hex")}"`;
+}
+
+function historySort(options) {
+  const direction = options.order === "asc" ? 1 : -1;
+  const field = SORTABLE.has(options.sort) ? options.sort : "timestamp";
+  if (field === "id") return { id: direction };
+  return { [field]: direction, id: direction };
+}
+
+async function historyPeriodSummary(installationId, filter, options, count) {
+  if (count < 2) return null;
+  const from = options.from ? new Date(options.from) : null;
+  const to = options.to ? new Date(options.to) : null;
+  const start = from
+    ? await Reading.findOne({ installation_id: installationId, timestamp: { $lte: from } }).sort({ timestamp: -1, id: -1 }).lean()
+    : await Reading.findOne(filter).sort({ timestamp: 1, id: 1 }).lean();
+  const end = to
+    ? await Reading.findOne({ installation_id: installationId, timestamp: { $lte: to } }).sort({ timestamp: -1, id: -1 }).lean()
+    : await Reading.findOne(filter).sort({ timestamp: -1, id: -1 }).lean();
+  if (!start || !end) return null;
+  const elapsedMs = new Date(end.timestamp) - new Date(start.timestamp);
+  if (elapsedMs <= 0) return null;
+  const series = await Reading.find({
+    installation_id: installationId,
+    timestamp: { $gte: start.timestamp, $lte: end.timestamp }
+  }).sort({ timestamp: 1, id: 1 }).select("cumulative_energy_kwh").lean();
+  for (let i = 1; i < series.length; i += 1) {
+    if (series[i].cumulative_energy_kwh < series[i - 1].cumulative_energy_kwh) return null;
   }
-  const scope = await authorizedScope(req.auth, options);
-  const filter = { installation: { $in: scope.installations.map((row) => row._id) } };
+  const energy = end.cumulative_energy_kwh - start.cumulative_energy_kwh;
+  if (energy < 0) return null;
+  const hours = elapsedMs / 3600000;
+  return {
+    energyGeneratedKwh: Number(energy.toFixed(3)),
+    averagePowerKw: Number((energy / hours).toFixed(3)),
+    readingCount: count
+  };
+}
+
+async function periodFilter(id, options) {
+  const filter = { installation_id: id };
   if (options.from || options.to) {
     filter.timestamp = {};
     if (options.from) filter.timestamp.$gte = new Date(options.from);
-    if (options.to) filter.timestamp.$lt = new Date(options.to);
+    if (options.to) filter.timestamp.$lte = new Date(options.to);
   }
-  const direction = options.sort === "timestamp" ? 1 : -1;
-  const result = await paginate(req, Reading, filter, { timestamp: direction, _id: direction }, options);
-  sendPage(req, res, result);
+  return filter;
 }
-async function list(req, res) {
-  await readingCollection(req, res);
+
+async function period(req, res) {
+  const id = parseId(req.params.id);
+  await scope.requireInstallation(req.auth.user, id);
+  const options = historyQuery(req);
+  const filter = await periodFilter(id, options);
+  const count = await Reading.countDocuments(filter);
+  const summary = await historyPeriodSummary(id, filter, options, count);
+  res.json({ summary });
 }
-async function listForInstallation(req, res) {
-  const id = validateId(req.params.id);
-  await readingCollection(req, res, id);
-}
-async function getOne(req, res) {
+
+async function latest(req, res) {
   noQuery(req);
-  const id = validateId(req.params.id);
-  const readingId = validateId(req.params.readingId);
-  if (req.auth.kind === "device") requireDevice(req, id);
-  else {
-    requireReader(req, res, () => {});
-    await accessibleResource(req.auth, "installations", id);
-  }
-  const reading = await Reading.findOne({ _id: readingId, installation: id }).lean();
-  if (!reading) fail(404, "NOT_FOUND", "Reading not found");
-  sendRepresentation(req, res, reading);
+  const id = parseId(req.params.id);
+  await scope.requireInstallation(req.auth.user, id);
+  const row = await Reading.findOne({ installation_id: id }).sort({ timestamp: -1, id: -1 }).lean();
+  if (!row) fail(404, "RESOURCE_NOT_FOUND", "Solar installation or readings not found");
+  res.json(present.reading(row));
 }
+
+async function history(req, res) {
+  const id = parseId(req.params.id);
+  await scope.requireInstallation(req.auth.user, id);
+  const options = historyQuery(req);
+  const filter = await periodFilter(id, options);
+  const skip = (options.page - 1) * options.limit;
+  const [rows, count] = await Promise.all([
+    Reading.find(filter).sort(historySort(options)).skip(skip).limit(options.limit).lean(),
+    Reading.countDocuments(filter)
+  ]);
+  const summary = await historyPeriodSummary(id, filter, options, count);
+  const origin = `${req.protocol}://${req.get("host")}`;
+  const path = `${config.base}/installations/${id}/solar/v1/readings`;
+  const link = (page) => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("limit", String(options.limit));
+    if (options.from) params.set("from", options.from);
+    if (options.to) params.set("to", options.to);
+    if (options.sort) params.set("sort", options.sort);
+    if (options.order) params.set("order", options.order);
+    return `${origin}${path}?${params.toString()}`;
+  };
+  const pages = Math.ceil(count / options.limit) || 0;
+  const body = {
+    count,
+    next: options.page < pages ? link(options.page + 1) : null,
+    previous: options.page > 1 && pages > 0 ? link(options.page - 1) : null,
+    data: rows.map(present.reading),
+    summary
+  };
+  const tag = entityTag(body);
+  res.set("ETag", tag);
+  res.set("Cache-Control", "private, no-cache");
+  if (req.get("If-None-Match") && req.get("If-None-Match") === tag) {
+    return res.status(304).end();
+  }
+  res.json(body);
+}
+
 async function create(req, res) {
   noQuery(req);
-  const id = validateId(req.params.id);
-  requireDevice(req, id);
+  requireJson(req);
+  const id = parseId(req.params.id);
   const body = readingSchema.parse(req.body);
   const timestamp = new Date(body.timestamp);
-  if (timestamp.getTime() > Date.now() + 5 * 60 * 1000) {
-    fail(400, "FUTURE_TIMESTAMP", "Timestamp may not be more than five minutes in the future");
-  }
-  if (body.powerKw > req.auth.installation.capacityKw * 1.2) {
-    fail(400, "IMPLAUSIBLE_POWER", "Power exceeds 120% of installation capacity");
-  }
-  let created;
-  await mongoose.connection.transaction(async (session) => {
-    const parent = await Installation.findByIdAndUpdate(id, { $inc: { __v: 1 } }, { new: true, session }).lean();
-    if (!parent) fail(404, "NOT_FOUND", "Installation not found");
-    // MongoDB transaction operations must run sequentially on this session.
-    const previous = await Reading.findOne({
-      installation: id, timestamp: { $lt: timestamp }
-    }).sort({ timestamp: -1 }).session(session).lean();
-    const following = await Reading.findOne({
-      installation: id, timestamp: { $gt: timestamp }
-    }).sort({ timestamp: 1 }).session(session).lean();
-    if (previous && body.cumulativeEnergyKwh < previous.cumulativeEnergyKwh) {
-      fail(409, "ENERGY_COUNTER_DECREASE", "Cumulative energy is lower than the preceding reading");
-    }
-    if (following && body.cumulativeEnergyKwh > following.cumulativeEnergyKwh) {
-      fail(409, "ENERGY_COUNTER_INCONSISTENT", "Cumulative energy exceeds the following reading");
-    }
-    [created] = await Reading.create([{ ...body, timestamp, installation: id }], { session });
+  if (Number.isNaN(timestamp.getTime())) fail(400, "VALIDATION_ERROR", "Invalid reading payload fields");
+  const row = await Reading.create({
+    id: await nextId("reading"),
+    installation_id: id,
+    timestamp,
+    power_kw: body.power_kw,
+    cumulative_energy_kwh: body.cumulative_energy_kwh,
+    voltage: body.voltage
   });
-  res.set("Location", `${config.base}/installations/${id}/readings/${created._id}`);
-  sendRepresentation(req, res, created.toObject(), 201);
+  const presented = present.reading(row.toObject());
+  const tag = entityTag(presented);
+  res.set("Location", `${req.protocol}://${req.get("host")}${req.originalUrl}`);
+  res.set("ETag", tag);
+  res.set("Last-Modified", timestamp.toUTCString());
+  res.status(201).json(presented);
 }
-function immutable(req, res) {
-  res.set("Allow", "GET, HEAD");
-  fail(405, "METHOD_NOT_ALLOWED", "Historical readings are immutable");
-}
-module.exports = { list, listForInstallation, getOne, create, immutable };
+
+module.exports = { latest, history, period, create };

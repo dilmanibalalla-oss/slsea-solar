@@ -7,9 +7,11 @@
     "start": "node src/server.js",
     "dev": "node src/server.js",
     "seed": "node scripts/seed.js",
-    "token": "node scripts/issue-device-token.js",
+    "provision-accounts": "node scripts/provision-accounts.js",
+    "api-key": "node scripts/issue-api-key.js",
+    "token": "node scripts/issue-api-key.js",
     "lint": "node scripts/syntax-check.js",
-    "test": "node --test test/app.test.js"
+    "test": "node --test test/*.test.js"
   },
   "repository": {
     "type": "git",

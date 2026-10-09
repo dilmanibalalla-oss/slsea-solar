@@ -1,13 +1,9 @@
 const express = require("express");
-const { requireReader, requireAdmin } = require("../middleware/auth");
+const { authenticateUser, requireReader } = require("../middleware/auth");
 const districts = require("../controllers/districts");
 const router = express.Router();
-router.get("/districts", requireReader, districts.list);
-router.get("/districts/:id", requireReader, districts.getOne);
-router.post("/districts", requireAdmin, districts.create);
-router.put("/districts/:id", requireAdmin, districts.replace);
-router.patch("/districts/:id", requireAdmin, districts.patch);
-router.delete("/districts/:id", requireAdmin, districts.remove);
-router.get("/districts/:id/substations", requireReader, districts.listSubstations);
-router.get("/districts/:id/generation-summary", requireReader, districts.generationSummary);
+router.get("/districts", authenticateUser, requireReader, districts.list);
+router.get("/districts/:id/solar/v1/substations", authenticateUser, requireReader, districts.listSubstations);
+router.get("/districts/:id/summary", authenticateUser, requireReader, districts.summary);
+router.get("/districts/:id", authenticateUser, requireReader, districts.getOne);
 module.exports = router;

@@ -1,5 +1,5 @@
 const express = require("express");
-const { loginThrottle, issueToken } = require("../controllers/auth");
+const { loginThrottle, login } = require("../controllers/auth");
 const router = express.Router();
-router.post("/auth/token", loginThrottle, issueToken);
+router.post("/auth/login", loginThrottle, login);
 module.exports = router;
