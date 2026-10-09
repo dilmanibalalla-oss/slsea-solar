@@ -1,0 +1,10 @@
+const express = require("express");
+const { requireReader } = require("../middleware/auth");
+const readings = require("../controllers/readings");
+const router = express.Router();
+router.get("/readings", requireReader, readings.list);
+router.get("/installations/:id/readings", requireReader, readings.listForInstallation);
+router.get("/installations/:id/readings/:readingId", readings.getOne);
+router.post("/installations/:id/readings", readings.create);
+router.all("/installations/:id/readings/:readingId", readings.immutable);
+module.exports = router;
