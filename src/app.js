@@ -16,9 +16,9 @@ app.use(helmet({
     useDefaults: true,
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:"]
+      styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+      imgSrc: ["'self'", "data:", "https://unpkg.com"]
     }
   }
 }));
@@ -36,22 +36,33 @@ function deploymentPayload(req) {
 }
 
 function swaggerHtml() {
+  const specUrl = `${config.base}/openapi.json`;
+  const assets = "https://unpkg.com/swagger-ui-dist@5.33.1";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Solar Generation API</title>
-  <link rel="stylesheet" href="${config.base}/docs-assets/swagger-ui.css">
+  <link rel="stylesheet" href="${assets}/swagger-ui.css">
+  <link rel="icon" type="image/png" href="${assets}/favicon-32x32.png" sizes="32x32">
 </head>
 <body>
   <div id="swagger-ui"></div>
-  <script src="${config.base}/docs-assets/swagger-ui-bundle.js"></script>
+  <script src="${assets}/swagger-ui-bundle.js"></script>
+  <script src="${assets}/swagger-ui-standalone-preset.js"></script>
   <script>
     window.ui = SwaggerUIBundle({
-      url: ${JSON.stringify(`${config.base}/openapi.json`)},
+      url: ${JSON.stringify(specUrl)},
       dom_id: "#swagger-ui",
-      persistAuthorization: true
+      deepLinking: true,
+      persistAuthorization: true,
+      tryItOutEnabled: true,
+      displayRequestDuration: true,
+      filter: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+      layout: "StandaloneLayout"
     });
   </script>
 </body>
