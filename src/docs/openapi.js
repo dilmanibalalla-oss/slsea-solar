@@ -277,8 +277,8 @@ const schemas = {
     required: ["username", "password"],
     description: "Existing account credentials. Do not send role or jurisdiction_id; those are read from the stored user.",
     properties: {
-      username: { type: "string", example: "national_admin", description: "Existing account username. This example is documentation only." },
-      password: { type: "string", format: "password", example: "Admin@123", description: "Existing account password. This example is documentation only and is not a live credential." }
+      username: { type: "string", example: "admin", description: "Existing account username. This example is documentation only." },
+      password: { type: "string", format: "password", example: "8QGuahGnXIYCL03f", description: "Existing account password. This example is documentation only and is not a live credential." }
     }
   },
   LoginResponse: {

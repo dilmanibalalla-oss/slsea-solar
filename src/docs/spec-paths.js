@@ -10,7 +10,10 @@ module.exports = function specPaths({
         tags: ["Authentication"],
         summary: "Exchange stored username and password for a JWT",
         security: [],
-        requestBody: jsonBody({ $ref: "#/components/schemas/LoginPayload" }),
+        requestBody: jsonBody({ $ref: "#/components/schemas/LoginPayload" }, {
+          username: "admin",
+          password: "8QGuahGnXIYCL03f"
+        }),
         responses: {
           200: {
             description: "Signed token issued. Call user routes with Authorization: Bearer <access_token>.",
