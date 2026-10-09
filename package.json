@@ -2,9 +2,14 @@
   "name": "slsea-solar",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "seed": "node scripts/seed.js",
+    "token": "node scripts/issue-device-token.js",
+    "lint": "node scripts/syntax-check.js",
+    "test": "node --test test/app.test.js"
   },
   "repository": {
     "type": "git",
@@ -14,6 +19,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
   "bugs": {
     "url": "https://github.com/dilmanibalalla-oss/slsea-solar/issues"
   },
