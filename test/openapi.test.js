@@ -12,10 +12,16 @@ const { apiServers, buildOpenApiDocument } = require("../src/docs/openapi");
 test("swagger html has persistAuthorization set to false", async () => {
   const response = await request(app).get("/solar/v1/docs").expect(200);
   assert.match(response.text, /persistAuthorization:\s*false/);
-  assert.match(response.text, /\/solar\/v1\/provinces\/\{id\}\/solar\/v1\/districts/);
+  assert.match(response.text, /cdn\.jsdelivr\.net\/npm\/swagger-ui-dist@/);
+  assert.match(response.text, /\/solar\/v1\/openapi\.json/);
   assert.doesNotMatch(response.text, /\/auth\/token/);
   assert.doesNotMatch(response.text, /X-User-Id/);
-  assert.match(response.text, /"bearerFormat":"JWT"/);
+});
+
+test("openapi json documents nested paths and JWT bearer auth", async () => {
+  const response = await request(app).get("/solar/v1/openapi.json").expect(200);
+  assert.equal(response.body.paths["/solar/v1/provinces/{id}/solar/v1/districts"] !== undefined, true);
+  assert.equal(response.body.components.securitySchemes.UserAuth.bearerFormat, "JWT");
 });
 
 test("LoginPayload example is documentation-only and not a live secret field name TokenRequest", async () => {

@@ -1,7 +1,7 @@
 const express = require("express");
 const helmet = require("helmet");
 const mongoose = require("mongoose");
-const swaggerUi = require("swagger-ui-dist");
+const swaggerUiVersion = require("swagger-ui-dist/package.json").version;
 const config = require("./config");
 const { connectDatabase } = require("./database");
 const { requestId, errorHandler, fail } = require("./middleware/errors");
@@ -11,14 +11,17 @@ const { buildOpenApiDocument } = require("./docs/openapi");
 const app = express();
 app.set("trust proxy", 1);
 app.use(requestId);
+const swaggerCdn = "https://cdn.jsdelivr.net";
+
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:"]
+      styleSrc: ["'self'", "'unsafe-inline'", swaggerCdn],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", swaggerCdn],
+      imgSrc: ["'self'", "data:", swaggerCdn],
+      connectSrc: ["'self'"]
     }
   }
 }));
@@ -40,9 +43,9 @@ function noStore(res) {
   res.set("Pragma", "no-cache");
 }
 
-function swaggerHtml(req) {
-  const specJson = JSON.stringify(buildOpenApiDocument(req)).replace(/</g, "\\u003c");
-  const assets = `${config.base}/docs-assets`;
+function swaggerHtml() {
+  const assets = `${swaggerCdn}/npm/swagger-ui-dist@${swaggerUiVersion}`;
+  const specUrl = `${config.base}/openapi.json`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -56,9 +59,10 @@ function swaggerHtml(req) {
 <body>
   <div id="swagger-ui"></div>
   <script src="${assets}/swagger-ui-bundle.js"></script>
+  <script src="${assets}/swagger-ui-standalone-preset.js"></script>
   <script>
     window.ui = SwaggerUIBundle({
-      spec: ${specJson},
+      url: ${JSON.stringify(specUrl)},
       dom_id: "#swagger-ui",
       deepLinking: true,
       persistAuthorization: false,
@@ -92,11 +96,16 @@ function swaggerHtml(req) {
           "get /solar/v1/installations/{id}/solar/v1/readings",
           "post /solar/v1/installations/{id}/solar/v1/readings"
         ];
-        const key = (op) => op.get("method") + " " + op.get("path");
+        const key = (op) => {
+          if (op && typeof op.get === "function") {
+            return op.get("method") + " " + op.get("path");
+          }
+          return String(op && op.method || "") + " " + String(op && op.path || "");
+        };
         return order.indexOf(key(a)) - order.indexOf(key(b));
       },
-      presets: [SwaggerUIBundle.presets.apis],
-      layout: "BaseLayout"
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      layout: "StandaloneLayout"
     });
   </script>
 </body>
@@ -123,14 +132,10 @@ app.get("/", (req, res) => {
 app.get(`${config.base}/status`, (req, res) => {
   res.json(deploymentPayload(req));
 });
-app.get(`${config.base}/docs`, (req, res) => {
+app.get([`${config.base}/docs`, `${config.base}/docs/`], (req, res) => {
   noStore(res);
-  res.type("html").send(swaggerHtml(req));
+  res.type("html").send(swaggerHtml());
 });
-app.use(`${config.base}/docs-assets`, express.static(swaggerUi.absolutePath(), {
-  index: false,
-  maxAge: "1d"
-}));
 app.get(`${config.base}/openapi.json`, (req, res) => {
   noStore(res);
   res.json(buildOpenApiDocument(req));

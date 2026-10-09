@@ -18,6 +18,8 @@ test("root page reports a successful deployment", async () => {
 test("swagger ui is served", async () => {
   const response = await request(app).get("/solar/v1/docs").expect(200);
   assert.match(response.text, /swagger-ui/);
+  assert.match(response.text, /cdn\.jsdelivr\.net\/npm\/swagger-ui-dist@/);
+  assert.match(response.text, /SwaggerUIBundle/);
 });
 
 test("openapi lists localhost and the deployed origin", async () => {
