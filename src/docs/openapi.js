@@ -252,20 +252,88 @@ paths["/health"] = {
     }
   }
 };
-module.exports = {
-  openapi: "3.0.3", info: {
-    title: "Solar Generation API", version: "1.0.0",
-    description: "SLSEA solar generation API. Immutable device readings, " +
-      "jurisdiction-scoped analyst reads, and administrator metadata CRUD."
-  },
-  servers: [{ url: base, description: "Current environment" }],
-  security: [{ bearerAuth: [] }], paths,
-  components: {
-    securitySchemes: {
-      bearerAuth: {
-        type: "http", scheme: "bearer", bearerFormat: "JWT",
-        description: "analyst-read, metadata-write, or installation-write permission scopes"
-      }
-    }, schemas
+paths["/status"] = {
+  get: {
+    tags: ["Operation"], summary: "Confirm the API is deployed", security: [], responses: {
+      200: jsonResponse("Deployment successful", {
+        type: "object",
+        required: ["status", "message", "docs"],
+        properties: {
+          status: { type: "string", example: "ok" },
+          message: { type: "string", example: "Deployment successful" },
+          environment: { type: "string", example: "vercel" },
+          docs: { type: "string", example: "https://example.vercel.app/solar/v1/docs" },
+          openapi: { type: "string", example: "https://example.vercel.app/solar/v1/openapi.json" }
+        }
+      })
+    }
   }
 };
+paths["/docs"] = {
+  get: {
+    tags: ["Operation"], summary: "Open the interactive Swagger UI", security: [],
+    responses: { 200: { description: "Swagger UI HTML" } }
+  }
+};
+function originFromRequest(req) {
+  if (!req || !req.get) return null;
+  const proto = (req.get("x-forwarded-proto") || req.protocol || "http").split(",")[0].trim();
+  const host = req.get("x-forwarded-host") || req.get("host");
+  return host ? `${proto}://${host}` : null;
+}
+function deployedOrigin() {
+  const configured = (process.env.PUBLIC_API_URL || "").replace(/\/$/, "");
+  if (configured) return configured;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return null;
+}
+function apiServers(req) {
+  const port = process.env.PORT || 3000;
+  const local = `http://localhost:${port}${base}`;
+  const deployed = deployedOrigin();
+  const current = originFromRequest(req);
+  const servers = [{ url: local, description: "Local development" }];
+  const seen = new Set([local]);
+  function add(url, description) {
+    if (!url) return;
+    const cleaned = url.replace(/\/$/, "");
+    const normalized = cleaned.endsWith(base) ? cleaned : `${cleaned}${base}`;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    servers.push({ url: normalized, description });
+  }
+  add(deployed, "Deployed (Vercel)");
+  if (current && !/localhost|127\.0\.0\.1/i.test(current)) {
+    add(current, "Current deployment");
+  }
+  return servers;
+}
+function buildOpenApiDocument(req) {
+  return {
+    openapi: "3.0.3",
+    info: {
+      title: "Solar Generation API",
+      version: "1.0.0",
+      description: "SLSEA solar generation API. Immutable device readings, " +
+        "jurisdiction-scoped analyst reads, and administrator metadata CRUD. " +
+        "After a successful deploy, GET /status returns \"Deployment successful\" " +
+        "and this Swagger UI is available at /docs."
+    },
+    servers: apiServers(req),
+    security: [{ bearerAuth: [] }],
+    paths,
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: "http", scheme: "bearer", bearerFormat: "JWT",
+          description: "analyst-read, metadata-write, or installation-write permission scopes"
+        }
+      },
+      schemas
+    }
+  };
+}
+module.exports = { base, buildOpenApiDocument, apiServers };
