@@ -40,8 +40,7 @@ function userProfile(row) {
     username: row.username,
     name: row.name,
     email: row.email,
-    role: row.role,
-    jurisdiction_id: row.jurisdiction_id ?? null
+    role: row.role
   };
 }
 

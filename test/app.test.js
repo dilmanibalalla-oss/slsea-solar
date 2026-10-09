@@ -56,6 +56,9 @@ test("openapi contract: tags, schemas, login, nested paths, security", () => {
   assert.deepEqual(Object.keys(spec.components.schemas.LoginResponse.properties), [
     "access_token", "token_type", "message", "user"
   ]);
+  assert.deepEqual(Object.keys(spec.components.schemas.LoginResponse.properties.user.properties), [
+    "id", "username", "name", "email", "role"
+  ]);
   assert.deepEqual(Object.keys(spec.paths), [
     "/solar/v1/auth/login",
     "/solar/v1/provinces",

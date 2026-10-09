@@ -65,8 +65,7 @@ const loginUserExample = {
   username: "national_admin",
   name: "National Admin",
   email: "admin@slsea.gov.lk",
-  role: "national",
-  jurisdiction_id: null
+  role: "national"
 };
 const putInstallationExample = {
   name: "Solar Installation 001",
@@ -296,8 +295,7 @@ const schemas = {
           username: { type: "string", example: "national_admin", description: "Account username" },
           name: { type: "string", example: "National Admin", description: "Display name" },
           email: { type: "string", example: "admin@slsea.gov.lk", description: "Account email" },
-          role: { type: "string", example: "national", description: "Stored role: admin, national, province, or district" },
-          jurisdiction_id: { type: "integer", nullable: true, example: null, description: "Assigned province or district id; null for nationwide roles" }
+          role: { type: "string", example: "national", description: "Stored role: admin, national, province, or district" }
         }
       }
     }
