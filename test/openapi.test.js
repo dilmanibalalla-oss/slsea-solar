@@ -28,7 +28,8 @@ test("LoginPayload example is documentation-only and not a live secret field nam
   const spec = buildOpenApiDocument();
   assert.equal(spec.components.schemas.TokenRequest, undefined);
   const login = spec.components.schemas.LoginPayload;
-  assert.equal(login.properties.username.example, "national_admin");
+  assert.equal(login.properties.username.example, "admin");
+  assert.equal(login.properties.password.example, "8QGuahGnXIYCL03f");
   assert.ok(login.required.includes("username"));
   assert.ok(login.required.includes("password"));
 });
