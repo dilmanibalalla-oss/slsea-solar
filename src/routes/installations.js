@@ -1,13 +1,9 @@
 const express = require("express");
-const { requireReader, requireAdmin } = require("../middleware/auth");
+const { authenticateUser, requireReader, requireAdmin } = require("../middleware/auth");
 const installations = require("../controllers/installations");
 const router = express.Router();
-router.get("/installations", requireReader, installations.list);
-router.get("/installations/:id", requireReader, installations.getOne);
-router.post("/installations", requireAdmin, installations.create);
-router.put("/installations/:id", requireAdmin, installations.replace);
-router.patch("/installations/:id", requireAdmin, installations.patch);
-router.delete("/installations/:id", requireAdmin, installations.remove);
-router.get("/installations/:id/composite", requireReader, installations.composite);
-router.get("/installations/:id/last-known-reading", requireReader, installations.lastKnownReading);
+router.get("/installations", authenticateUser, requireReader, installations.list);
+router.get("/installations/:id", authenticateUser, requireReader, installations.getOne);
+router.put("/installations/:id", authenticateUser, requireAdmin, installations.replace);
+router.delete("/installations/:id", authenticateUser, requireAdmin, installations.remove);
 module.exports = router;

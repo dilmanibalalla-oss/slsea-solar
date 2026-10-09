@@ -1,12 +1,8 @@
 const express = require("express");
-const { requireReader, requireAdmin } = require("../middleware/auth");
+const { authenticateUser, requireReader } = require("../middleware/auth");
 const provinces = require("../controllers/provinces");
 const router = express.Router();
-router.get("/provinces", requireReader, provinces.list);
-router.get("/provinces/:id", requireReader, provinces.getOne);
-router.post("/provinces", requireAdmin, provinces.create);
-router.put("/provinces/:id", requireAdmin, provinces.replace);
-router.patch("/provinces/:id", requireAdmin, provinces.patch);
-router.delete("/provinces/:id", requireAdmin, provinces.remove);
-router.get("/provinces/:id/districts", requireReader, provinces.listDistricts);
+router.get("/provinces", authenticateUser, requireReader, provinces.list);
+router.get("/provinces/:id/solar/v1/districts", authenticateUser, requireReader, provinces.listDistricts);
+router.get("/provinces/:id", authenticateUser, requireReader, provinces.getOne);
 module.exports = router;

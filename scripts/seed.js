@@ -1,75 +1,93 @@
 const path = require("node:path");
+const { randomBytes } = require("node:crypto");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 require("dotenv").config({ path: path.join(__dirname, "..", "src", ".env") });
 const mongoose = require("mongoose");
 const { connectDatabase } = require("../src/database");
 const models = require("../src/models");
-const { hashPassword } = require("../src/middleware/auth");
-const { Province, District, Substation, Installation, Reading, User, LoginBucket } = models;
+const { nextIds } = require("../src/models/counter");
+const { provisionAccounts } = require("./provision-accounts");
+const { Province, District, Substation, Installation, Reading, LoginBucket, Counter } = models;
+
 const geography = [
-  ["Western", "WP", ["Colombo", "Gampaha", "Kalutara"]],
-  ["Central", "CP", ["Kandy", "Matale", "Nuwara Eliya"]],
-  ["Southern", "SP", ["Galle", "Matara", "Hambantota"]],
-  ["Northern", "NP", ["Jaffna", "Kilinochchi", "Mannar", "Vavuniya", "Mullaitivu"]],
-  ["Eastern", "EP", ["Batticaloa", "Ampara", "Trincomalee"]],
-  ["North Western", "NWP", ["Kurunegala", "Puttalam"]],
-  ["North Central", "NCP", ["Anuradhapura", "Polonnaruwa"]],
-  ["Uva", "UP", ["Badulla", "Monaragala"]],
-  ["Sabaragamuwa", "SGP", ["Ratnapura", "Kegalle"]]
+  ["Western", "WP", [["Colombo", "CM"], ["Gampaha", "GM"], ["Kalutara", "KT"]]],
+  ["Central", "CP", [["Kandy", "KY"], ["Matale", "MT"], ["Nuwara Eliya", "NE"]]],
+  ["Southern", "SP", [["Galle", "GL"], ["Matara", "MR"], ["Hambantota", "HB"]]],
+  ["Northern", "NP", [["Jaffna", "JF"], ["Kilinochchi", "KL"], ["Mannar", "MN"], ["Vavuniya", "VV"], ["Mullaitivu", "ML"]]],
+  ["Eastern", "EP", [["Batticaloa", "BT"], ["Ampara", "AP"], ["Trincomalee", "TC"]]],
+  ["North Western", "NWP", [["Kurunegala", "KG"], ["Puttalam", "PT"]]],
+  ["North Central", "NCP", [["Anuradhapura", "AD"], ["Polonnaruwa", "PL"]]],
+  ["Uva", "UP", [["Badulla", "BD"], ["Monaragala", "MG"]]],
+  ["Sabaragamuwa", "SGP", [["Ratnapura", "RT"], ["Kegalle", "KE"]]]
 ];
+
 async function seed() {
   await connectDatabase();
   const database = mongoose.connection.name;
   if (process.env.SEED_CONFIRM !== database) {
-    throw new Error(`Seed replaces this application's data. Set SEED_CONFIRM=${database} explicitly.`);
+    throw new Error(`Seed replaces geography and readings. Set SEED_CONFIRM=${database} explicitly. User accounts are not deleted.`);
   }
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
-  const analystPassword = process.env.SEED_ANALYST_PASSWORD;
-  if (!adminPassword || !analystPassword || adminPassword.length < 16 || analystPassword.length < 16) {
-    throw new Error("Seed passwords must contain at least 16 characters");
-  }
-  for (const model of [Reading, Installation, Substation, District, Province, User, LoginBucket]) {
+  async function resetCollection(model) {
     await model.deleteMany({});
+    try { await model.collection.dropIndexes(); } catch { /* _id index remains or collection empty */ }
   }
-  for (const model of Object.values(models)) await model.createIndexes();
+  await resetCollection(Reading);
+  await resetCollection(Installation);
+  await resetCollection(Substation);
+  await resetCollection(District);
+  await resetCollection(Province);
+  await LoginBucket.deleteMany({});
+  await Counter.deleteMany({ _id: { $in: ["province", "district", "substation", "installation", "reading"] } });
+
   const installations = [];
   const provinces = [];
   const districts = [];
   let districtNumber = 0;
-  for (const [provinceName, provinceCode, districtNames] of geography) {
-    const province = await Province.create({ name: provinceName, code: provinceCode });
+  let provinceId = await nextIds("province", geography.length);
+  for (const [provinceName, provinceCode, districtRows] of geography) {
+    const province = await Province.create({
+      id: provinceId++,
+      name: `${provinceName} Province`,
+      code: provinceCode
+    });
     provinces.push(province);
-    for (const districtName of districtNames) {
+    let districtIdSeq;
+    districtIdSeq = await nextIds("district", districtRows.length);
+    for (const [districtName, districtCode] of districtRows) {
       districtNumber++;
-      const district = await District.create({ name: districtName, province: province._id });
-      districts.push(district);
-      const substation = await Substation.create({
-        name: `${districtName} Grid Substation`,
-        code: `GS-${String(districtNumber).padStart(2, "0")}`,
-        district: district._id
+      const district = await District.create({
+        id: districtIdSeq++,
+        name: districtName,
+        code: districtCode,
+        province_id: province.id
       });
-      for (let site = 1; site <= 9; site++) {
+      districts.push(district);
+      const substationId = await nextIds("substation", 1);
+      const substation = await Substation.create({
+        id: substationId,
+        name: `${districtName} Grid Substation`,
+        capacity_mva: 100,
+        district_id: district.id
+      });
+      const siteCount = 9;
+      let installationId = await nextIds("installation", siteCount);
+      for (let site = 1; site <= siteCount; site++) {
         const installation = await Installation.create({
+          id: installationId++,
           name: `${districtName} Solar Site ${site}`,
-          meterId: `MTR-${districtNumber}-${String(site).padStart(3, "0")}`,
-          substation: substation._id, capacityKw: 3 + site * 0.5,
+          meter_id: `MTR-${districtNumber}-${String(site).padStart(3, "0")}`,
+          inverter_id: `INV-${districtNumber}-${String(site).padStart(3, "0")}`,
+          substation_id: substation.id,
+          capacity_kw: 3 + site * 0.5,
           latitude: 6.0 + districtNumber * 0.12,
-          longitude: 79.7 + (districtNumber % 10) * 0.12
+          longitude: 79.7 + (districtNumber % 10) * 0.12,
+          api_key: randomBytes(32).toString("hex"),
+          deleted_at: null
         });
         installations.push(installation);
       }
     }
   }
-  const adminHash = await hashPassword(adminPassword);
-  const analystHash = await hashPassword(analystPassword);
-  const western = provinces.find((row) => row.code === "WP");
-  const colombo = districts.find((row) => row.name === "Colombo");
-  await User.create([
-    { email: "admin@slsea.example", passwordHash: adminHash, role: "admin" },
-    { email: "national@slsea.example", passwordHash: analystHash, role: "national" },
-    { email: "western@slsea.example", passwordHash: analystHash, role: "province", province: western._id },
-    { email: "colombo@slsea.example", passwordHash: analystHash, role: "district", district: colombo._id }
-  ]);
   const intervalMs = 15 * 60 * 1000;
   const points = 7 * 24 * 4;
   const end = Math.floor(Date.now() / intervalMs) * intervalMs;
@@ -78,36 +96,45 @@ async function seed() {
   for (const [siteIndex, installation] of installations.entries()) {
     let cumulativeEnergy = 1000 + siteIndex * 20;
     const records = [];
+    let readingId = await nextIds("reading", points);
     for (let point = 0; point < points; point++) {
       const timestamp = new Date(start + point * intervalMs);
       const local = new Date(timestamp.getTime() + 330 * 60 * 1000);
       const hour = local.getUTCHours() + local.getUTCMinutes() / 60;
       const daylight = hour >= 6 && hour <= 18 ? Math.sin(Math.PI * (hour - 6) / 12) : 0;
       const variation = 0.75 + ((siteIndex * 13 + point * 7) % 20) / 100;
-      const powerKw = Number((installation.capacityKw * daylight * variation).toFixed(3));
-      cumulativeEnergy += powerKw * 0.25;
+      const power_kw = Number((installation.capacity_kw * daylight * variation).toFixed(3));
+      cumulativeEnergy += power_kw * 0.25;
       records.push({
-        installation: installation._id, timestamp, powerKw,
-        cumulativeEnergyKwh: Number(cumulativeEnergy.toFixed(4)),
-        voltage: 228 + ((siteIndex + point) % 9), createdAt: timestamp, updatedAt: timestamp
+        id: readingId++,
+        installation_id: installation.id,
+        timestamp,
+        power_kw,
+        cumulative_energy_kwh: Number(cumulativeEnergy.toFixed(4)),
+        voltage: 228 + ((siteIndex + point) % 9)
       });
     }
     await Reading.insertMany(records);
     total += records.length;
     if ((siteIndex + 1) % 25 === 0) console.log(`Seeded ${siteIndex + 1} installations`);
   }
+
+  await provisionAccounts();
+  for (const model of Object.values(models)) {
+    if (typeof model.createIndexes === "function") await model.createIndexes();
+  }
+
   console.log({
-    provinces: provinces.length, districts: districts.length,
-    substations: await Substation.countDocuments(), installations: installations.length,
-    readings: total, historyStart: new Date(start).toISOString(), historyEnd: new Date(end).toISOString()
+    provinces: provinces.length,
+    districts: districts.length,
+    substations: await Substation.countDocuments(),
+    installations: installations.length,
+    readings: total
   });
-  console.log("Seed accounts:");
-  console.log("admin@slsea.example");
-  console.log("national@slsea.example");
-  console.log("western@slsea.example");
-  console.log("colombo@slsea.example");
-  console.log("Passwords come from your local seed environment variables.");
+  console.log("User accounts were preserved or created if missing. Passwords are never reset for existing users.");
+  console.log("Print an installation API key with: npm run api-key -- 1");
 }
+
 seed().catch((error) => {
   console.error("Seed failed:", error.message);
   process.exitCode = 1;

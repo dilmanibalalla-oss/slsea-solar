@@ -1,5 +1,4 @@
 const express = require("express");
-const { authenticate } = require("../middleware/auth");
 const auth = require("./auth");
 const provinces = require("./provinces");
 const districts = require("./districts");
@@ -8,10 +7,9 @@ const installations = require("./installations");
 const readings = require("./readings");
 const router = express.Router();
 router.use(auth);
-router.use(authenticate);
 router.use(provinces);
 router.use(districts);
 router.use(substations);
-router.use(installations);
 router.use(readings);
+router.use(installations);
 module.exports = router;
