@@ -87,7 +87,7 @@ test("openapi contract: tags, schemas, login, nested paths, security", () => {
     "/solar/v1/districts/{id}",
     "/solar/v1/districts/{id}/solar/v1/substations",
     "/solar/v1/districts/{id}/summary",
-    "/solar/v1/substations/{id}/solar/v1/installations",
+    "/solar/v1/substations/{id}/installations",
     "/solar/v1/installations",
     "/solar/v1/installations/{id}",
     "/solar/v1/installations/{id}/solar/v1/readings/latest",
