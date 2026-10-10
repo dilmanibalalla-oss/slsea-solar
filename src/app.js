@@ -26,6 +26,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", swaggerCdn],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", swaggerCdn],
       imgSrc: ["'self'", "data:", swaggerCdn],
+      upgradeInsecureRequests: null,
       connectSrc
     }
   }
