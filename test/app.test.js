@@ -29,9 +29,27 @@ test("openapi lists localhost and the deployed origin", async () => {
   assert.ok(urls.some((url) => url.includes("slsea-solar.vercel.app")));
 });
 
-test("apiServers always includes local development", () => {
+test("apiServers lists the hosted API before localhost", () => {
   const servers = apiServers();
-  assert.equal(servers[0].description, "Local SLSEA API");
+  assert.equal(servers[0].description, "Hosted SLSEA API");
+  assert.equal(servers[0].url, "https://slsea-solar.vercel.app");
+  assert.ok(servers.some((server) => server.description === "Local SLSEA API"));
+  assert.ok(servers.findIndex((server) => server.url.includes("localhost")) > 0);
+});
+
+test("localhost Swagger can call the API", async () => {
+  const response = await request(app)
+    .options("/solar/v1/auth/login")
+    .set("Origin", "http://localhost:3000")
+    .set("Access-Control-Request-Method", "POST")
+    .set("Access-Control-Request-Headers", "content-type,authorization")
+    .expect(204);
+  assert.equal(response.headers["access-control-allow-origin"], "http://localhost:3000");
+  assert.match(response.headers["access-control-allow-headers"], /Authorization/);
+  const docs = await request(app).get("/solar/v1/docs").expect(200);
+  assert.match(docs.headers["content-security-policy"], /connect-src[^;]*https:\/\/slsea-solar\.vercel\.app/);
+  const other = await request(app).get("/solar/v1/openapi.json").set("Origin", "https://evil.example").expect(200);
+  assert.equal(other.headers["access-control-allow-origin"], undefined);
 });
 
 test("openapi contract: tags, schemas, login, nested paths, security", () => {
