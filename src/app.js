@@ -110,6 +110,7 @@ function swaggerHtml() {
           "get /solar/v1/districts/{id}/summary",
           "get /solar/v1/substations/{id}/installations",
           "get /solar/v1/installations",
+          "post /solar/v1/installations",
           "get /solar/v1/installations/{id}",
           "put /solar/v1/installations/{id}",
           "delete /solar/v1/installations/{id}",

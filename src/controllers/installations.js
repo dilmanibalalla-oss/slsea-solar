@@ -1,5 +1,5 @@
 const { randomBytes } = require("node:crypto");
-const { Installation, Reading } = require("../models");
+const { Installation, Reading, Substation } = require("../models");
 const { nextId } = require("../models/counter");
 const {
   installationCreateSchema, installationWriteSchema, installationPatchSchema,
@@ -30,13 +30,21 @@ async function create(req, res) {
   noQuery(req);
   requireJson(req);
   const body = installationCreateSchema.parse(req.body);
+  const substation = await Substation.findOne({ id: body.substation_id }).lean();
+  if (!substation) fail(404, "RESOURCE_NOT_FOUND", "Substation not found");
+  const apiKey = randomBytes(32).toString("hex");
   const row = await Installation.create({
     id: await nextId("installation"),
     ...body,
-    api_key: randomBytes(32).toString("hex"),
+    api_key: apiKey,
     deleted_at: null
   });
-  res.status(201).json(present.installation(row.toObject()));
+  res.set("Location", `${req.protocol}://${req.get("host")}${req.originalUrl}/${row.id}`);
+  res.set("Cache-Control", "no-store");
+  res.status(201).json({
+    installation: present.installation(row.toObject()),
+    api_key: apiKey
+  });
 }
 
 async function replace(req, res) {
