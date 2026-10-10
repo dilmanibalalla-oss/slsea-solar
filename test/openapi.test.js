@@ -38,12 +38,12 @@ test("baseline inventory paths exist with integer path ids", () => {
   const spec = buildOpenApiDocument();
   const login = spec.paths["/solar/v1/auth/login"].post;
   assert.equal(login.security.length, 0);
-  const history = spec.paths["/solar/v1/installations/{id}/solar/v1/readings"].get;
+  const history = spec.paths["/solar/v1/installations/{id}/readings"].get;
   assert.ok(history.parameters.some((p) => p.name === "id" && p.in === "path" && p.schema.type === "integer"));
   assert.ok(history.parameters.some((p) => p.name === "If-None-Match" && p.in === "header"));
   assert.ok(history.responses["200"].headers.ETag);
   assert.ok(history.responses["304"].headers.ETag);
-  const ingest = spec.paths["/solar/v1/installations/{id}/solar/v1/readings"].post;
+  const ingest = spec.paths["/solar/v1/installations/{id}/readings"].post;
   assert.deepEqual(ingest.security, [{ ApiKeyAuth: [] }]);
   assert.ok(ingest.responses["201"].headers.Location);
 });

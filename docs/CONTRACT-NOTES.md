@@ -5,7 +5,7 @@
 - Prefix `/solar/v1` on every API route.
 - Integer public IDs and snake_case fields (not Mongo ObjectIds or camelCase).
 - Login: `POST /solar/v1/auth/login` with `username` / `password`; JWT `UserAuth`.
-- Ingestion: `POST /solar/v1/installations/{id}/solar/v1/readings` with `X-API-Key` only.
+- Ingestion: `POST /solar/v1/installations/{id}/readings` with `X-API-Key` only.
 - Four roles: `admin`, `national`, `province`, `district` with the documented scopes and jurisdiction filters.
 - Nested read paths such as `/solar/v1/provinces/{id}/solar/v1/districts`.
 - Bare arrays for collections; envelope only for reading history.
@@ -25,7 +25,7 @@
 ## Unresolved items in the source contract (not “fixed” silently)
 
 - Every documented JSON error example is the same `Province not found` payload, including 400/401/403 on other resources. Runtime errors use appropriate messages; Swagger examples stay generic as specified.
-- History `next` example uses `/solar/v1/installations/1/readings?...` while the implemented path is `/solar/v1/installations/{id}/solar/v1/readings`. The example is preserved in OpenAPI; runtime `next`/`previous` use the real path.
+- History `next` example uses `/solar/v1/installations/1/readings?...` and the implemented path is `/solar/v1/installations/{id}/readings`. Runtime `next`/`previous` use that path.
 - No numeric/length bounds were documented; the implementation only requires types needed to run.
 - POST `Location` has no documented GET for a single reading; the header is set to the request URL and is not given a fake example.
 - `last_reading` has no nullable marker; the API returns `null` when an installation has no readings so GET composite still works.

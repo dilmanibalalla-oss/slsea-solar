@@ -91,7 +91,7 @@ async function history(req, res) {
   ]);
   const summary = await historyPeriodSummary(id, filter, options, count);
   const origin = `${req.protocol}://${req.get("host")}`;
-  const path = `${config.base}/installations/${id}/solar/v1/readings`;
+  const path = `${config.base}/installations/${id}/readings`;
   const link = (page) => {
     const params = new URLSearchParams();
     params.set("page", String(page));

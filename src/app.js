@@ -113,10 +113,10 @@ function swaggerHtml() {
           "get /solar/v1/installations/{id}",
           "put /solar/v1/installations/{id}",
           "delete /solar/v1/installations/{id}",
-          "get /solar/v1/installations/{id}/solar/v1/readings/latest",
-          "get /solar/v1/installations/{id}/solar/v1/readings/summary",
-          "get /solar/v1/installations/{id}/solar/v1/readings",
-          "post /solar/v1/installations/{id}/solar/v1/readings"
+          "get /solar/v1/installations/{id}/readings/latest",
+          "get /solar/v1/installations/{id}/readings/summary",
+          "get /solar/v1/installations/{id}/readings",
+          "post /solar/v1/installations/{id}/readings"
         ];
         const key = (op) => {
           if (op && typeof op.get === "function") {
