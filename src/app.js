@@ -13,7 +13,12 @@ app.set("trust proxy", 1);
 app.use(requestId);
 const swaggerCdn = "https://cdn.jsdelivr.net";
 
+const connectSrc = ["'self'"];
+const hostedOrigin = (config.publicOrigin || "https://slsea-solar.vercel.app").replace(/\/solar\/v1$/, "");
+connectSrc.push(hostedOrigin);
+
 app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
@@ -21,11 +26,27 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", swaggerCdn],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", swaggerCdn],
       imgSrc: ["'self'", "data:", swaggerCdn],
-      connectSrc: ["'self'"]
+      connectSrc
     }
   }
 }));
 app.use(express.json({ limit: "32kb" }));
+
+function isLocalBrowserOrigin(origin) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin || "");
+}
+
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+  if (!isLocalBrowserOrigin(origin)) return next();
+  res.set("Access-Control-Allow-Origin", origin);
+  res.set("Vary", "Origin");
+  res.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, If-Match, If-None-Match, X-API-Key");
+  res.set("Access-Control-Expose-Headers", "ETag, Location");
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
 function deploymentPayload(req) {
   const origin = `${req.protocol}://${req.get("host")}`;

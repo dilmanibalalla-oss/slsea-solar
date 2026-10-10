@@ -316,14 +316,14 @@ function deployedOrigin() {
     return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
   }
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return null;
+  return "https://slsea-solar.vercel.app";
 }
 
 function apiServers(req) {
   const port = process.env.PORT || 3000;
   const local = `http://localhost:${port}`;
-  const servers = [{ url: local, description: "Local SLSEA API" }];
-  const seen = new Set([local]);
+  const servers = [];
+  const seen = new Set();
   function add(url, description) {
     if (!url) return;
     const cleaned = url.replace(/\/$/, "").replace(/\/solar\/v1$/, "");
@@ -334,6 +334,7 @@ function apiServers(req) {
   add(deployedOrigin(), "Hosted SLSEA API");
   const current = originFromRequest(req);
   if (current && !/localhost|127\.0\.0\.1/i.test(current)) add(current, "This deployment");
+  add(local, "Local SLSEA API");
   return servers;
 }
 
