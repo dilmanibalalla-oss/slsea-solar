@@ -136,7 +136,7 @@ module.exports = function specPaths({
         }
       }
     },
-    "/solar/v1/substations/{id}/solar/v1/installations": {
+    "/solar/v1/substations/{id}/installations": {
       get: {
         tags: ["Substations"],
         summary: "List solar sites on a substation",
