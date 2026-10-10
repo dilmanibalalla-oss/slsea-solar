@@ -3,25 +3,25 @@ const { authenticateUser, requireReader, authenticateApiKey } = require("../midd
 const readings = require("../controllers/readings");
 const router = express.Router();
 router.get(
-  "/installations/:id/solar/v1/readings/latest",
+  "/installations/:id/readings/latest",
   authenticateUser,
   requireReader,
   readings.latest
 );
 router.get(
-  "/installations/:id/solar/v1/readings/summary",
+  "/installations/:id/readings/summary",
   authenticateUser,
   requireReader,
   readings.period
 );
 router.get(
-  "/installations/:id/solar/v1/readings",
+  "/installations/:id/readings",
   authenticateUser,
   requireReader,
   readings.history
 );
 router.post(
-  "/installations/:id/solar/v1/readings",
+  "/installations/:id/readings",
   authenticateApiKey,
   readings.create
 );

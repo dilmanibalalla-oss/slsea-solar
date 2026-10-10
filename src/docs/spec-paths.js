@@ -220,7 +220,7 @@ module.exports = function specPaths({
         }
       }
     },
-    "/solar/v1/installations/{id}/solar/v1/readings/latest": {
+    "/solar/v1/installations/{id}/readings/latest": {
       get: {
         tags: ["Readings"],
         summary: "Get the newest reading for a site",
@@ -237,7 +237,7 @@ module.exports = function specPaths({
         }
       }
     },
-    "/solar/v1/installations/{id}/solar/v1/readings/summary": {
+    "/solar/v1/installations/{id}/readings/summary": {
       get: {
         tags: ["Readings"],
         summary: "Period energy generated for a site",
@@ -277,7 +277,7 @@ module.exports = function specPaths({
         }
       }
     },
-    "/solar/v1/installations/{id}/solar/v1/readings": {
+    "/solar/v1/installations/{id}/readings": {
       get: {
         tags: ["Readings"],
         summary: "List readings and period energy for a site",

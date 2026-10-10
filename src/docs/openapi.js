@@ -378,7 +378,7 @@ function buildOpenApiDocument(req) {
           type: "apiKey",
           in: "header",
           name: "X-API-Key",
-          description: "Installation-bound device key for POST /solar/v1/installations/{id}/solar/v1/readings only. Print a site key with `npm run api-key -- <installation-id>`. User JWTs are not accepted here."
+          description: "Installation-bound device key for POST /solar/v1/installations/{id}/readings only. Print a site key with `npm run api-key -- <installation-id>`. User JWTs are not accepted here."
         }
       },
       schemas

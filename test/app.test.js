@@ -90,9 +90,9 @@ test("openapi contract: tags, schemas, login, nested paths, security", () => {
     "/solar/v1/substations/{id}/installations",
     "/solar/v1/installations",
     "/solar/v1/installations/{id}",
-    "/solar/v1/installations/{id}/solar/v1/readings/latest",
-    "/solar/v1/installations/{id}/solar/v1/readings/summary",
-    "/solar/v1/installations/{id}/solar/v1/readings"
+    "/solar/v1/installations/{id}/readings/latest",
+    "/solar/v1/installations/{id}/readings/summary",
+    "/solar/v1/installations/{id}/readings"
   ]);
   assert.deepEqual(Object.keys(spec.paths["/solar/v1/installations/{id}"]), ["get", "put", "delete"]);
   assert.deepEqual(Object.keys(spec.paths["/solar/v1/provinces"]), ["get"]);
@@ -104,7 +104,7 @@ test("openapi contract: tags, schemas, login, nested paths, security", () => {
   assert.equal(spec.paths["/solar/v1/provinces"].post, undefined);
   assert.equal(spec.paths["/solar/v1/substations"], undefined);
   assert.equal(spec.paths["/solar/v1/auth/login"].post.security.length, 0);
-  assert.deepEqual(spec.paths["/solar/v1/installations/{id}/solar/v1/readings"].post.security, [{ ApiKeyAuth: [] }]);
+  assert.deepEqual(spec.paths["/solar/v1/installations/{id}/readings"].post.security, [{ ApiKeyAuth: [] }]);
   assert.equal(spec.paths["/docs"], undefined);
   assert.equal(spec.paths["/solar/v1/health"], undefined);
   assert.equal(spec.components.schemas.TokenRequest, undefined);
