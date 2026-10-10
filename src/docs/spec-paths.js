@@ -165,6 +165,39 @@ module.exports = function specPaths({
           },
           401: errorResponse("Invalid user identification")
         }
+      },
+      post: {
+        tags: ["Solar Installations"],
+        summary: "Create a solar installation",
+        description: "Administrator JWT with the metadata-write scope. The parent substation must already exist. The response returns the new site and its api_key once; later GET, PUT and DELETE responses omit the key. In Swagger: log in with POST /solar/v1/auth/login, authorize that JWT as UserAuth, call this operation, then copy the returned installation id and api_key. Authorize ApiKeyAuth with that key and POST /solar/v1/installations/{id}/readings for the new site. The example key is a placeholder, not a live credential.",
+        requestBody: jsonBody(installationInput, putInstallationExample),
+        responses: {
+          201: {
+            description: "Installation created. api_key is revealed only here.",
+            headers: {
+              Location: { schema: { type: "string" }, description: "URL of the created installation, /solar/v1/installations/{id}" },
+              "Cache-Control": { schema: { type: "string" }, description: "Set to no-store so the one-time key is not cached" }
+            },
+            ...json({
+              type: "object",
+              properties: {
+                installation: { $ref: "#/components/schemas/SolarInstallation" },
+                api_key: {
+                  type: "string",
+                  example: "YOUR_INSTALLATION_API_KEY",
+                  description: "Newly generated device key. Shown only in this response. The example is a placeholder."
+                }
+              }
+            }, {
+              installation: installationExample,
+              api_key: "YOUR_INSTALLATION_API_KEY"
+            })
+          },
+          400: errorResponse("Validation failed"),
+          401: errorResponse("Invalid user identification"),
+          403: errorResponse("Forbidden"),
+          404: errorResponse("Substation not found")
+        }
       }
     },
     "/solar/v1/installations/{id}": {

@@ -3,6 +3,7 @@ const { authenticateUser, requireReader, requireAdmin } = require("../middleware
 const installations = require("../controllers/installations");
 const router = express.Router();
 router.get("/installations", authenticateUser, requireReader, installations.list);
+router.post("/installations", authenticateUser, requireAdmin, installations.create);
 router.get("/installations/:id", authenticateUser, requireReader, installations.getOne);
 router.put("/installations/:id", authenticateUser, requireAdmin, installations.replace);
 router.delete("/installations/:id", authenticateUser, requireAdmin, installations.remove);

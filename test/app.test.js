@@ -94,6 +94,8 @@ test("openapi contract: tags, schemas, login, nested paths, security", () => {
     "/solar/v1/installations/{id}/readings/summary",
     "/solar/v1/installations/{id}/readings"
   ]);
+  assert.deepEqual(Object.keys(spec.paths["/solar/v1/installations"]), ["get", "post"]);
+  assert.equal(spec.paths["/solar/v1/installations"].post.responses["201"].content["application/json"].example.api_key, "YOUR_INSTALLATION_API_KEY");
   assert.deepEqual(Object.keys(spec.paths["/solar/v1/installations/{id}"]), ["get", "put", "delete"]);
   assert.deepEqual(Object.keys(spec.paths["/solar/v1/provinces"]), ["get"]);
   assert.deepEqual(Object.keys(spec.components.securitySchemes), ["UserAuth", "ApiKeyAuth"]);

@@ -362,7 +362,7 @@ function buildOpenApiDocument(req) {
       { name: "Provinces", description: "Province records and child districts, clipped to the signed-in user's territory." },
       { name: "Districts", description: "District records, substations in a district, and district-wide generation totals." },
       { name: "Substations", description: "Solar sites attached to one grid substation." },
-      { name: "Solar Installations", description: "Solar sites: list, inspect with last reading, replace metadata, or soft-delete. api_key is never returned." },
+      { name: "Solar Installations", description: "Solar sites: list, inspect with last reading, create, replace metadata, or soft-delete. The device api_key is returned only by the create response." },
       { name: "Readings", description: "Latest reading, paginated history with period energy, and device ingest via X-API-Key." }
     ],
     paths: specPaths(),
