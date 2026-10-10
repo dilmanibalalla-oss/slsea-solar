@@ -48,6 +48,7 @@ test("localhost Swagger can call the API", async () => {
   assert.match(response.headers["access-control-allow-headers"], /Authorization/);
   const docs = await request(app).get("/solar/v1/docs").expect(200);
   assert.match(docs.headers["content-security-policy"], /connect-src[^;]*https:\/\/slsea-solar\.vercel\.app/);
+  assert.doesNotMatch(docs.headers["content-security-policy"], /upgrade-insecure-requests/);
   const other = await request(app).get("/solar/v1/openapi.json").set("Origin", "https://evil.example").expect(200);
   assert.equal(other.headers["access-control-allow-origin"], undefined);
 });
