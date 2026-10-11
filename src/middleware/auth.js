@@ -5,6 +5,7 @@ const { promisify } = require("node:util");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const { User, Installation, LoginBucket } = require("../models");
+const { parseId } = require("../validators");
 const { fail } = require("./errors");
 
 const scrypt = promisify(scryptCallback);
@@ -54,9 +55,16 @@ function bearerToken(req) {
   return match ? match[1] : "";
 }
 
+function challengeBearer(res) {
+  res.set("WWW-Authenticate", 'Bearer realm="solar-api"');
+}
+
 async function authenticateUser(req, res, next) {
   const token = bearerToken(req);
-  if (!token) fail(401, "UNAUTHENTICATED", "Invalid user identification");
+  if (!token) {
+    challengeBearer(res);
+    fail(401, "UNAUTHENTICATED", "Authorization Bearer token is required");
+  }
   let payload;
   try {
     payload = jwt.verify(token, config.jwtSecret, {
@@ -64,17 +72,25 @@ async function authenticateUser(req, res, next) {
       issuer: config.jwtIssuer,
       audience: config.jwtAudience
     });
-  } catch {
-    fail(401, "UNAUTHENTICATED", "Invalid user identification");
+  } catch (error) {
+    challengeBearer(res);
+    if (error && error.name === "TokenExpiredError") {
+      fail(401, "UNAUTHENTICATED", "Access token has expired");
+    }
+    fail(401, "UNAUTHENTICATED", "Access token is invalid");
   }
   if (!payload || payload.kind !== "user" || payload.sub == null) {
-    fail(401, "UNAUTHENTICATED", "Invalid user identification");
+    challengeBearer(res);
+    fail(401, "UNAUTHENTICATED", "Access token is invalid");
   }
   const userId = Number(payload.sub);
   const user = Number.isInteger(userId)
     ? await User.findOne({ id: userId }).lean()
     : null;
-  if (!user) fail(401, "UNAUTHENTICATED", "Invalid user identification");
+  if (!user) {
+    challengeBearer(res);
+    fail(401, "UNAUTHENTICATED", "Access token is invalid");
+  }
   const expectedScope = scopesForRole(user.role);
   const tokenScope = typeof payload.scope === "string" ? payload.scope : "";
   req.auth = {
@@ -88,22 +104,24 @@ async function authenticateUser(req, res, next) {
 
 function requireReader(req, res, next) {
   if (!req.auth || req.auth.kind !== "user") {
-    fail(401, "UNAUTHENTICATED", "Invalid user identification");
+    challengeBearer(res);
+    fail(401, "UNAUTHENTICATED", "Authorization Bearer token is required");
   }
   if (!req.auth.scopes.includes("analyst-read") || !req.auth.expectedScope.includes("analyst-read")) {
-    fail(403, "FORBIDDEN", "Access denied: resource outside jurisdiction");
+    fail(403, "FORBIDDEN", "analyst-read permission is required");
   }
   next();
 }
 
 function requireAdmin(req, res, next) {
   if (!req.auth || req.auth.kind !== "user") {
-    fail(401, "UNAUTHENTICATED", "Invalid user identification");
+    challengeBearer(res);
+    fail(401, "UNAUTHENTICATED", "Authorization Bearer token is required");
   }
   if (req.auth.user.role !== "admin" ||
       !req.auth.scopes.includes("metadata-write") ||
       !req.auth.expectedScope.includes("metadata-write")) {
-    fail(403, "FORBIDDEN", "Access denied: resource outside jurisdiction");
+    fail(403, "FORBIDDEN", "Administrator metadata-write permission is required");
   }
   next();
 }
@@ -111,12 +129,14 @@ function requireAdmin(req, res, next) {
 async function authenticateApiKey(req, res, next) {
   const key = req.get("X-API-Key");
   if (!key) {
+    res.set("WWW-Authenticate", 'ApiKey realm="solar-api"');
     fail(401, "UNAUTHENTICATED", "X-API-Key header is required for device ingestion");
   }
-  const id = Number(req.params.id);
-  const installation = await Installation.findOne({ id, deleted_at: null }).select("+api_key").lean();
+  const id = parseId(req.params.id);
+  const installation = await Installation.findOne({ id, deleted_at: null }).select("+api_key");
   if (!installation) fail(404, "RESOURCE_NOT_FOUND", "Solar installation not found");
-  if (!safeEqual(installation.api_key, key)) {
+  const stored = installation.get("api_key");
+  if (typeof stored !== "string" || stored.length === 0 || !safeEqual(stored, key)) {
     fail(403, "FORBIDDEN", "Provided API key does not match this installation");
   }
   req.installation = installation;

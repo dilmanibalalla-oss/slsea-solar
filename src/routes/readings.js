@@ -15,6 +15,12 @@ router.get(
   readings.period
 );
 router.get(
+  "/installations/:id/readings/:readingId",
+  authenticateUser,
+  requireReader,
+  readings.getOne
+);
+router.get(
   "/installations/:id/readings",
   authenticateUser,
   requireReader,
@@ -24,5 +30,11 @@ router.post(
   "/installations/:id/readings",
   authenticateApiKey,
   readings.create
+);
+router.get(
+  "/readings",
+  authenticateUser,
+  requireReader,
+  readings.regional
 );
 module.exports = router;

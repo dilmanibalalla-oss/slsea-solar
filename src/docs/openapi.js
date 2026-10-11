@@ -1,10 +1,121 @@
-const errorExample = { error: { code: "RESOURCE_NOT_FOUND", message: "Province not found" } };
-const errorContent = {
-  "application/json": {
-    schema: { $ref: "#/components/schemas/ErrorResponse" },
-    example: errorExample
+function errorEnvelope(code, message, details = []) {
+  return { error: { code, message, details } };
+}
+
+function errorResponse(description, body, extras = {}) {
+  const { examples, headers } = extras;
+  return {
+    description,
+    ...(headers ? { headers } : {}),
+    content: {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ErrorResponse" },
+        ...(examples ? { examples } : { example: body })
+      }
+    }
+  };
+}
+
+function refResponse(name) {
+  return { $ref: `#/components/responses/${name}` };
+}
+
+const wwwAuthenticateBearer = {
+  "WWW-Authenticate": {
+    schema: { type: "string" },
+    description: "Bearer challenge for user JWT failures",
+    example: 'Bearer realm="solar-api"'
   }
 };
+
+const wwwAuthenticateApiKey = {
+  "WWW-Authenticate": {
+    schema: { type: "string" },
+    description: "Challenge for missing X-API-Key on device ingest",
+    example: 'ApiKey realm="solar-api"'
+  }
+};
+
+const componentResponses = {
+  UnauthorizedBearer: errorResponse(
+    "Missing, invalid or expired Authorization Bearer JWT",
+    errorEnvelope("UNAUTHENTICATED", "Authorization Bearer token is required"),
+    {
+      headers: wwwAuthenticateBearer,
+      examples: {
+        missing: {
+          summary: "Missing Bearer token",
+          value: errorEnvelope("UNAUTHENTICATED", "Authorization Bearer token is required")
+        },
+        invalid: {
+          summary: "Invalid Bearer token",
+          value: errorEnvelope("UNAUTHENTICATED", "Access token is invalid")
+        },
+        expired: {
+          summary: "Expired Bearer token",
+          value: errorEnvelope("UNAUTHENTICATED", "Access token has expired")
+        }
+      }
+    }
+  ),
+  UnauthorizedApiKey: errorResponse(
+    "X-API-Key header is missing. Device ingest does not accept a user JWT.",
+    errorEnvelope("UNAUTHENTICATED", "X-API-Key header is required for device ingestion"),
+    { headers: wwwAuthenticateApiKey }
+  ),
+  ForbiddenJurisdiction: errorResponse(
+    "Authenticated caller is outside the resource jurisdiction",
+    errorEnvelope("FORBIDDEN", "Access denied: caller jurisdiction does not include this resource")
+  ),
+  ForbiddenAdmin: errorResponse(
+    "Authenticated caller lacks administrator metadata-write permission",
+    errorEnvelope("FORBIDDEN", "Administrator metadata-write permission is required")
+  ),
+  ForbiddenApiKey: errorResponse(
+    "X-API-Key does not match the installation in the path",
+    errorEnvelope("FORBIDDEN", "Provided API key does not match this installation")
+  ),
+  ValidationFailed: errorResponse(
+    "Request body or parameters failed validation",
+    errorEnvelope("VALIDATION_ERROR", "Validation failed", [
+      { path: "name", message: "Required" }
+    ])
+  ),
+  ValidationPathId: errorResponse(
+    "Path id is not a positive integer",
+    errorEnvelope("VALIDATION_ERROR", "id must be a positive integer", [
+      { path: "id", message: "id must be a positive integer" }
+    ])
+  ),
+  ValidationQuery: errorResponse(
+    "Query parameters failed validation",
+    errorEnvelope("VALIDATION_ERROR", "from must be earlier than or equal to to", [
+      { path: "from", message: "from must be earlier than or equal to to" }
+    ])
+  ),
+  UnsupportedMediaType: errorResponse(
+    "Content-Type must be application/json",
+    errorEnvelope("UNSUPPORTED_MEDIA_TYPE", "Content-Type: application/json is required")
+  ),
+  DuplicateReading: errorResponse(
+    "A reading already exists for this installation at this timestamp",
+    errorEnvelope("DUPLICATE_RESOURCE", "A reading already exists for this installation at this timestamp")
+  ),
+  DuplicateMeterId: errorResponse(
+    "meter_id is already used by another installation",
+    errorEnvelope("DUPLICATE_RESOURCE", "An installation with this meter_id already exists")
+  ),
+  InconsistentGeography: errorResponse(
+    "Geographic query filters do not nest (AND) consistently",
+    errorEnvelope("VALIDATION_ERROR", "district_id is not in the requested province", [
+      { path: "district_id", message: "district_id is not in the requested province" }
+    ])
+  )
+};
+
+function notFound(message) {
+  return errorResponse(message, errorEnvelope("RESOURCE_NOT_FOUND", message));
+}
 
 const provinceExample = { id: 1, name: "Western Province", code: "WP" };
 const districtExample = { id: 1, name: "Colombo", code: "CM", province_id: 1 };
@@ -84,10 +195,6 @@ const idParam = {
   schema: { type: "integer" },
   description: "Integer public identifier (not a MongoDB ObjectId)"
 };
-
-function errorResponse(description) {
-  return { description, content: errorContent };
-}
 
 function json(schema, example) {
   return {
@@ -213,6 +320,30 @@ const schemas = {
       peak_power_kw: { type: "number", example: 13.61, description: "Maximum power_kw observed across those sites" }
     }
   },
+  RegionalReadingsEnvelope: {
+    type: "object",
+    description: "Paginated readings across permitted installations. This endpoint does not compute energy summary; use GET /installations/{id}/readings or /readings/summary for site period energy.",
+    properties: {
+      count: { type: "integer", example: 2, description: "Total matching readings before pagination" },
+      next: {
+        type: "string",
+        nullable: true,
+        example: null,
+        description: "Absolute URL of the next page, preserving filters and sort"
+      },
+      previous: {
+        type: "string",
+        nullable: true,
+        example: null,
+        description: "Absolute URL of the previous page, preserving filters and sort"
+      },
+      data: {
+        type: "array",
+        items: { $ref: "#/components/schemas/GenerationReading" },
+        description: "Readings for this page"
+      }
+    }
+  },
   ReadingsHistoryEnvelope: {
     type: "object",
     description: "Paginated readings for one site, plus period energy from the cumulative kWh meter.",
@@ -260,13 +391,26 @@ const schemas = {
   },
   ErrorResponse: {
     type: "object",
-    description: "JSON error envelope. The example below is the documented illustration; live `message` text depends on the failing operation.",
+    required: ["error"],
+    description: "JSON error envelope used by every error response. `details` is an array and is empty when there are no field-level issues.",
     properties: {
       error: {
         type: "object",
+        required: ["code", "message"],
         properties: {
-          code: { type: "string", example: "RESOURCE_NOT_FOUND", description: "Machine-readable error code" },
-          message: { type: "string", example: "Province not found", description: "Human-readable explanation" }
+          code: { type: "string", description: "Machine-readable error code" },
+          message: { type: "string", description: "Human-readable explanation for this failure" },
+          details: {
+            type: "array",
+            description: "Optional field-level validation issues. Empty on authentication, authorization and not-found errors.",
+            items: {
+              type: "object",
+              properties: {
+                path: { type: "string", description: "JSON body path, query name, or id" },
+                message: { type: "string", description: "Issue for that path" }
+              }
+            }
+          }
         }
       }
     }
@@ -274,7 +418,7 @@ const schemas = {
   LoginPayload: {
     type: "object",
     required: ["username", "password"],
-    description: "Existing account credentials. Do not send role or jurisdiction_id; those are read from the stored user.",
+    description: "Stored account username and password. Login verifies the password hash on the matching user record and issues a JWT. Role and jurisdiction_id are not accepted on this body. Provisioned usernames are admin, national, western and colombo.",
     properties: {
       username: { type: "string", example: "admin", description: "Existing account username. This example is documentation only." },
       password: { type: "string", format: "password", example: "8QGuahGnXIYCL03f", description: "Existing account password. This example is documentation only and is not a live credential." }
@@ -331,9 +475,11 @@ function apiServers(req) {
     seen.add(cleaned);
     servers.push({ url: cleaned, description });
   }
-  add(deployedOrigin(), "Hosted SLSEA API");
   const current = originFromRequest(req);
-  if (current && !/localhost|127\.0\.0\.1/i.test(current)) add(current, "This deployment");
+  add(deployedOrigin(), "Hosted SLSEA API");
+  if (current && !/localhost|127\.0\.0\.1/i.test(current)) {
+    add(current, "This deployment");
+  }
   add(local, "Local SLSEA API");
   return servers;
 }
@@ -342,7 +488,7 @@ const buildSpecPaths = require("./spec-paths");
 
 function specPaths() {
   return buildSpecPaths({
-    errorResponse, json, jsonBody, idParam, installationInput,
+    errorResponse, refResponse, errorEnvelope, notFound, json, jsonBody, idParam, installationInput,
     provinceExample, districtExample, substationExample, installationExample,
     readingExample, compositeExample, summaryExample, historyExample,
     loginUserExample, putInstallationExample
@@ -361,9 +507,9 @@ function buildOpenApiDocument(req) {
       { name: "Authentication", description: "Obtain a JWT from an existing SLSEA account. Login itself is unauthenticated." },
       { name: "Provinces", description: "Province records and child districts, clipped to the signed-in user's territory." },
       { name: "Districts", description: "District records, substations in a district, and district-wide generation totals." },
-      { name: "Substations", description: "Solar sites attached to one grid substation." },
+      { name: "Substations", description: "Grid substations the caller may see, plus solar sites attached to one substation." },
       { name: "Solar Installations", description: "Solar sites: list, inspect with last reading, create, replace metadata, or soft-delete. The device api_key is returned only by the create response." },
-      { name: "Readings", description: "Latest reading, paginated history with period energy, and device ingest via X-API-Key." }
+      { name: "Readings", description: "Latest reading, one-reading GET, paginated site history with period energy, regional listing without energy summary, and device ingest via X-API-Key." }
     ],
     paths: specPaths(),
     components: {
@@ -378,9 +524,10 @@ function buildOpenApiDocument(req) {
           type: "apiKey",
           in: "header",
           name: "X-API-Key",
-          description: "Installation-bound device key for POST /solar/v1/installations/{id}/readings only. Print a site key with `npm run api-key -- <installation-id>`. User JWTs are not accepted here."
+          description: "Installation-specific device API key returned when an administrator creates an installation through POST /solar/v1/installations. Paste the key here without quotes or a Bearer prefix. Swagger sends it in the X-API-Key header. The key authorizes reading submissions only for its associated active installation. User JWTs cannot authenticate telemetry ingestion. Installation-bound device key for POST /solar/v1/installations/{id}/readings only. User JWTs are not accepted here."
         }
       },
+      responses: componentResponses,
       schemas
     },
     security: [{ UserAuth: [] }]

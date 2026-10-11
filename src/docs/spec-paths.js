@@ -1,19 +1,28 @@
 module.exports = function specPaths({
-  errorResponse, json, jsonBody, idParam, installationInput,
+  errorResponse, refResponse, errorEnvelope, notFound, json, jsonBody, idParam, installationInput,
   provinceExample, districtExample, substationExample, installationExample,
   readingExample, compositeExample, summaryExample, historyExample,
   loginUserExample, putInstallationExample
 }) {
-  return {
-    "/solar/v1/auth/login": {
+  const analystPassword = "zIjHj67gY1cyFTYT";
+  const auth401 = refResponse("UnauthorizedBearer");
+  const apiKey401 = refResponse("UnauthorizedApiKey");
+  const forbidJ = refResponse("ForbiddenJurisdiction");
+  const forbidA = refResponse("ForbiddenAdmin");
+  const forbidKey = refResponse("ForbiddenApiKey");
+  const path400 = refResponse("ValidationPathId");
+  const query400 = refResponse("ValidationQuery");
+  const body400 = refResponse("ValidationFailed");
+  const type415 = refResponse("UnsupportedMediaType");
+  const dupReading = refResponse("DuplicateReading");
+  const dupMeter = refResponse("DuplicateMeterId");
+  function loginPath(summary, credentials, userExample) {
+    return {
       post: {
         tags: ["Authentication"],
-        summary: "Exchange stored username and password for a JWT",
+        summary,
         security: [],
-        requestBody: jsonBody({ $ref: "#/components/schemas/LoginPayload" }, {
-          username: "admin",
-          password: "8QGuahGnXIYCL03f"
-        }),
+        requestBody: jsonBody({ $ref: "#/components/schemas/LoginPayload" }, credentials),
         responses: {
           200: {
             description: "Signed token issued. Call user routes with Authorization: Bearer <access_token>.",
@@ -21,14 +30,59 @@ module.exports = function specPaths({
               access_token: "<access_token>",
               token_type: "Bearer",
               message: "Login successful",
-              user: loginUserExample
+              user: userExample
             })
           },
-          400: errorResponse("Missing username or password"),
-          401: errorResponse("Invalid credentials")
+          400: errorResponse(
+            "Missing username or password, extra fields, or invalid JSON",
+            errorEnvelope("VALIDATION_ERROR", "Missing username or password", [
+              { path: "password", message: "Required" }
+            ])
+          ),
+          401: errorResponse(
+            "Username and password did not match a stored account",
+            errorEnvelope("INVALID_CREDENTIALS", "Invalid credentials")
+          ),
+          415: type415
         }
       }
-    },
+    };
+  }
+  return {
+    "/solar/v1/auth/login": loginPath("Exchange stored username and password for a JWT", {
+      username: "admin",
+      password: "8QGuahGnXIYCL03f"
+    }, loginUserExample),
+    "/solar/v1/auth/login/national": loginPath("National analyst login", {
+      username: "national",
+      password: analystPassword
+    }, {
+      id: 2,
+      username: "national",
+      name: "National Analyst",
+      email: "national@slsea.example",
+      role: "national"
+    }),
+    "/solar/v1/auth/login/provincial": loginPath("Provincial analyst login", {
+      username: "western",
+      password: analystPassword
+    }, {
+      id: 3,
+      username: "western",
+      name: "Provincial Analyst",
+      email: "western@slsea.example",
+      role: "province"
+    }),
+    "/solar/v1/auth/login/district": loginPath("District analyst login", {
+      username: "colombo",
+      password: analystPassword
+    }, {
+      id: 4,
+      username: "colombo",
+      name: "District Analyst",
+      email: "colombo@slsea.example",
+      role: "district"
+    }),
     "/solar/v1/provinces": {
       get: {
         tags: ["Provinces"],
@@ -39,7 +93,7 @@ module.exports = function specPaths({
             description: "Province array with no pagination wrapper",
             ...json({ type: "array", items: { $ref: "#/components/schemas/Province" } }, [provinceExample])
           },
-          401: errorResponse("Invalid user identification")
+          401: auth401
         }
       }
     },
@@ -51,13 +105,14 @@ module.exports = function specPaths({
         parameters: [{ ...idParam, description: "Province integer id" }],
         responses: {
           200: { description: "Province record", ...json({ $ref: "#/components/schemas/Province" }, provinceExample) },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Access denied: resource outside jurisdiction"),
-          404: errorResponse("Province not found")
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("Province not found")
         }
       }
     },
-    "/solar/v1/provinces/{id}/solar/v1/districts": {
+    "/solar/v1/provinces/{id}/districts": {
       get: {
         tags: ["Provinces"],
         summary: "List districts under a province",
@@ -68,9 +123,10 @@ module.exports = function specPaths({
             description: "District array for that province",
             ...json({ type: "array", items: { $ref: "#/components/schemas/District" } }, [districtExample])
           },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Province not found")
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("Province not found")
         }
       }
     },
@@ -84,7 +140,7 @@ module.exports = function specPaths({
             description: "District array with no pagination wrapper",
             ...json({ type: "array", items: { $ref: "#/components/schemas/District" } }, [districtExample])
           },
-          401: errorResponse("Invalid user identification")
+          401: auth401
         }
       }
     },
@@ -96,13 +152,14 @@ module.exports = function specPaths({
         parameters: [{ ...idParam, description: "District integer id" }],
         responses: {
           200: { description: "District record", ...json({ $ref: "#/components/schemas/District" }, districtExample) },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("District not found")
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("District not found")
         }
       }
     },
-    "/solar/v1/districts/{id}/solar/v1/substations": {
+    "/solar/v1/districts/{id}/substations": {
       get: {
         tags: ["Districts"],
         summary: "List substations under a district",
@@ -113,9 +170,10 @@ module.exports = function specPaths({
             description: "GridSubstation array for that district",
             ...json({ type: "array", items: { $ref: "#/components/schemas/GridSubstation" } }, [substationExample])
           },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("District not found")
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("District not found")
         }
       }
     },
@@ -130,9 +188,40 @@ module.exports = function specPaths({
             description: "DistrictSummary for the requested district",
             ...json({ $ref: "#/components/schemas/DistrictSummary" }, summaryExample)
           },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("District not found")
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("District not found")
+        }
+      }
+    },
+    "/solar/v1/substations": {
+      get: {
+        tags: ["Substations"],
+        summary: "Return substations the caller is allowed to see",
+        description: "Bare JSON array using the GridSubstation presenter. Admin and national see every substation. A province user sees substations in districts of their assigned province. A district user sees substations in their assigned district.",
+        responses: {
+          200: {
+            description: "GridSubstation array with no pagination wrapper",
+            ...json({ type: "array", items: { $ref: "#/components/schemas/GridSubstation" } }, [substationExample])
+          },
+          400: query400,
+          401: auth401
+        }
+      }
+    },
+    "/solar/v1/substations/{id}": {
+      get: {
+        tags: ["Substations"],
+        summary: "Fetch a single substation",
+        description: "Looks up the substation by public integer id. 403 when it sits outside the caller's territory.",
+        parameters: [{ ...idParam, description: "Grid substation integer id" }],
+        responses: {
+          200: { description: "GridSubstation record", ...json({ $ref: "#/components/schemas/GridSubstation" }, substationExample) },
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("Substation not found")
         }
       }
     },
@@ -147,9 +236,10 @@ module.exports = function specPaths({
             description: "SolarInstallation array (api_key excluded)",
             ...json({ type: "array", items: { $ref: "#/components/schemas/SolarInstallation" } }, [installationExample])
           },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Substation not found")
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("Substation not found")
         }
       }
     },
@@ -163,7 +253,7 @@ module.exports = function specPaths({
             description: "SolarInstallation array",
             ...json({ type: "array", items: { $ref: "#/components/schemas/SolarInstallation" } }, [installationExample])
           },
-          401: errorResponse("Invalid user identification")
+          401: auth401
         }
       },
       post: {
@@ -193,10 +283,12 @@ module.exports = function specPaths({
               api_key: "YOUR_INSTALLATION_API_KEY"
             })
           },
-          400: errorResponse("Validation failed"),
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Substation not found")
+          400: body400,
+          401: auth401,
+          403: forbidA,
+          404: notFound("Substation not found"),
+          409: dupMeter,
+          415: type415
         }
       }
     },
@@ -211,9 +303,10 @@ module.exports = function specPaths({
             description: "CompositeInstallation including last_reading",
             ...json({ $ref: "#/components/schemas/CompositeInstallation" }, compositeExample)
           },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Solar installation not found")
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("Solar installation not found")
         }
       },
       put: {
@@ -227,9 +320,11 @@ module.exports = function specPaths({
             description: "Updated SolarInstallation (api_key excluded)",
             ...json({ $ref: "#/components/schemas/SolarInstallation" }, installationExample)
           },
-          400: errorResponse("Validation failed"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Solar installation not found")
+          400: body400,
+          401: auth401,
+          403: forbidA,
+          404: notFound("Solar installation not found"),
+          415: type415
         }
       },
       delete: {
@@ -248,8 +343,10 @@ module.exports = function specPaths({
               }
             }, { message: "Solar installation deleted successfully", id: 1 })
           },
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Solar installation not found")
+          400: path400,
+          401: auth401,
+          403: forbidA,
+          404: notFound("Solar installation not found")
         }
       }
     },
@@ -264,9 +361,25 @@ module.exports = function specPaths({
             description: "Bare reading object",
             ...json({ $ref: "#/components/schemas/GenerationReading" }, readingExample)
           },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Solar installation or readings not found")
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: errorResponse(
+            "Installation is missing, soft-deleted, or has no stored readings",
+            errorEnvelope("RESOURCE_NOT_FOUND", "Solar installation not found"),
+            {
+              examples: {
+                missingInstallation: {
+                  summary: "Installation does not exist or is soft-deleted",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "Solar installation not found")
+                },
+                noReadings: {
+                  summary: "Installation exists but has no readings",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "No readings found for this installation")
+                }
+              }
+            }
+          )
         }
       }
     },
@@ -304,9 +417,43 @@ module.exports = function specPaths({
               }
             })
           },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Solar installation not found")
+          400: query400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("Solar installation not found")
+        }
+      }
+    },
+    "/solar/v1/installations/{id}/readings/{readingId}": {
+      get: {
+        tags: ["Readings"],
+        summary: "Fetch one reading for a site",
+        description: "Looks up the reading by public integer id only when it belongs to the path installation. User JWT required. A reading stored under a different installation is 404, not 403.",
+        parameters: [
+          { ...idParam, description: "Solar installation integer id" },
+          { name: "readingId", in: "path", required: true, schema: { type: "integer" }, description: "Public integer reading id" }
+        ],
+        responses: {
+          200: { description: "Bare reading object", ...json({ $ref: "#/components/schemas/GenerationReading" }, readingExample) },
+          400: path400,
+          401: auth401,
+          403: forbidJ,
+          404: errorResponse(
+            "Installation missing/soft-deleted, or no reading with this id on that installation",
+            errorEnvelope("RESOURCE_NOT_FOUND", "Reading not found"),
+            {
+              examples: {
+                missingInstallation: {
+                  summary: "Installation does not exist or is soft-deleted",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "Solar installation not found")
+                },
+                missingReading: {
+                  summary: "No reading with this id on this installation",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "Reading not found")
+                }
+              }
+            }
+          )
         }
       }
     },
@@ -338,15 +485,16 @@ module.exports = function specPaths({
             description: "Not Modified (ETag matched)",
             headers: { ETag: { schema: { type: "string" }, description: "Validator that matched If-None-Match" } }
           },
-          401: errorResponse("Invalid user identification"),
-          403: errorResponse("Forbidden"),
-          404: errorResponse("Solar installation not found")
+          400: query400,
+          401: auth401,
+          403: forbidJ,
+          404: notFound("Solar installation not found")
         }
       },
       post: {
         tags: ["Readings"],
         summary: "Store one meter reading",
-        description: "Writes the original meter reading for the path installation. Use that site's X-API-Key only; a user JWT is not accepted. Location is the request URL.",
+        description: "Writes the original meter reading for the path installation. Use that site's X-API-Key only; a user JWT is not accepted. Location identifies the created reading at /solar/v1/installations/{id}/readings/{readingId}.",
         security: [{ ApiKeyAuth: [] }],
         parameters: [{ ...idParam, description: "Solar installation integer id receiving the reading" }],
         requestBody: jsonBody({ $ref: "#/components/schemas/CreateReadingPayload" }),
@@ -354,16 +502,97 @@ module.exports = function specPaths({
           201: {
             description: "Reading created successfully",
             headers: {
-              Location: { schema: { type: "string" }, description: "URL of this ingest request" },
+              Location: { schema: { type: "string" }, description: "Absolute URI of the created reading, /solar/v1/installations/{installationId}/readings/{readingId}" },
               ETag: { schema: { type: "string" }, description: "Validator for the created reading body" },
               "Last-Modified": { schema: { type: "string" }, description: "HTTP-date of the sample timestamp" }
             },
             ...json({ $ref: "#/components/schemas/GenerationReading" }, readingExample)
           },
-          400: errorResponse("Invalid reading payload fields"),
-          401: errorResponse("X-API-Key header is required for device ingestion"),
-          403: errorResponse("Provided API key does not match this installation"),
-          404: errorResponse("Solar installation not found")
+          400: body400,
+          401: apiKey401,
+          403: forbidKey,
+          404: notFound("Solar installation not found"),
+          409: dupReading,
+          415: type415
+        }
+      }
+    },
+    "/solar/v1/readings": {
+      get: {
+        tags: ["Readings"],
+        summary: "List permitted readings with optional regional filters",
+        description: "Read-only analytical listing. Geographic filters province_id, district_id and substation_id are combined with AND and then intersected with the caller's jurisdiction; they never broaden access. Inconsistent nesting (district not in province, or substation not in district/province) is 400. A filter that names an existing resource outside jurisdiction is 403. Missing named geography is 404. This endpoint does not include an energy summary.",
+        parameters: [
+          { name: "province_id", in: "query", schema: { type: "integer" }, description: "Keep readings whose installation is in this province" },
+          { name: "district_id", in: "query", schema: { type: "integer" }, description: "Keep readings whose installation is in this district" },
+          { name: "substation_id", in: "query", schema: { type: "integer" }, description: "Keep readings whose installation is on this substation" },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 }, description: "1-based page number" },
+          { name: "limit", in: "query", schema: { type: "integer", default: 50 }, description: "Page size, maximum 200" },
+          { name: "from", in: "query", schema: { type: "string", format: "date-time" }, description: "Inclusive lower bound on reading timestamp" },
+          { name: "to", in: "query", schema: { type: "string", format: "date-time" }, description: "Inclusive upper bound on reading timestamp" },
+          { name: "sort", in: "query", schema: { type: "string", default: "timestamp", enum: ["timestamp", "id", "power_kw", "cumulative_energy_kwh", "voltage"] }, description: "Sort field; timestamp uses reading id as a stable tie-breaker" },
+          { name: "order", in: "query", schema: { type: "string", default: "desc", enum: ["asc", "desc"] }, description: "Ascending or descending order" },
+          { name: "If-None-Match", in: "header", schema: { type: "string" }, description: "ETag from a previous GET of this page; matching value yields 304" }
+        ],
+        responses: {
+          200: {
+            description: "Paginated readings without energy summary",
+            headers: {
+              ETag: { schema: { type: "string" }, description: "Validator for this page body" },
+              "Cache-Control": { schema: { type: "string" }, description: "Set to private, no-cache on this response" }
+            },
+            ...json({ $ref: "#/components/schemas/RegionalReadingsEnvelope" }, {
+              count: 2, next: null, previous: null, data: [readingExample]
+            })
+          },
+          304: {
+            description: "Not Modified (ETag matched)",
+            headers: { ETag: { schema: { type: "string" }, description: "Validator that matched If-None-Match" } }
+          },
+          400: errorResponse(
+            "Invalid pagination, dates, sort, or geographic filters that do not nest under AND",
+            errorEnvelope("VALIDATION_ERROR", "district_id is not in the requested province", [
+              { path: "district_id", message: "district_id is not in the requested province" }
+            ]),
+            {
+              examples: {
+                inconsistentGeography: {
+                  summary: "AND filters do not nest",
+                  value: errorEnvelope("VALIDATION_ERROR", "district_id is not in the requested province", [
+                    { path: "district_id", message: "district_id is not in the requested province" }
+                  ])
+                },
+                reversedWindow: {
+                  summary: "from after to",
+                  value: errorEnvelope("VALIDATION_ERROR", "from must be earlier than or equal to to", [
+                    { path: "from", message: "from must be earlier than or equal to to" }
+                  ])
+                }
+              }
+            }
+          ),
+          401: auth401,
+          403: forbidJ,
+          404: errorResponse(
+            "Named province, district or substation does not exist",
+            errorEnvelope("RESOURCE_NOT_FOUND", "Province not found"),
+            {
+              examples: {
+                missingProvince: {
+                  summary: "Unknown province_id",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "Province not found")
+                },
+                missingDistrict: {
+                  summary: "Unknown district_id",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "District not found")
+                },
+                missingSubstation: {
+                  summary: "Unknown substation_id",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "Substation not found")
+                }
+              }
+            }
+          )
         }
       }
     }

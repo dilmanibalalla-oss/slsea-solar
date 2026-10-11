@@ -1,6 +1,6 @@
 const { randomBytes } = require("node:crypto");
 const { Installation, Reading, Substation } = require("../models");
-const { nextId } = require("../models/counter");
+const { nextUnusedId } = require("../models/counter");
 const {
   installationCreateSchema, installationWriteSchema, installationPatchSchema,
   parseId, noQuery, requireJson
@@ -34,7 +34,7 @@ async function create(req, res) {
   if (!substation) fail(404, "RESOURCE_NOT_FOUND", "Substation not found");
   const apiKey = randomBytes(32).toString("hex");
   const row = await Installation.create({
-    id: await nextId("installation"),
+    id: await nextUnusedId("installation", Installation),
     ...body,
     api_key: apiKey,
     deleted_at: null
