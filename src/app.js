@@ -101,13 +101,18 @@ function swaggerHtml() {
       operationsSorter: (a, b) => {
         const order = [
           "post /solar/v1/auth/login",
+          "post /solar/v1/auth/login/national",
+          "post /solar/v1/auth/login/provincial",
+          "post /solar/v1/auth/login/district",
           "get /solar/v1/provinces",
           "get /solar/v1/provinces/{id}",
-          "get /solar/v1/provinces/{id}/solar/v1/districts",
+          "get /solar/v1/provinces/{id}/districts",
           "get /solar/v1/districts",
           "get /solar/v1/districts/{id}",
-          "get /solar/v1/districts/{id}/solar/v1/substations",
+          "get /solar/v1/districts/{id}/substations",
           "get /solar/v1/districts/{id}/summary",
+          "get /solar/v1/substations",
+          "get /solar/v1/substations/{id}",
           "get /solar/v1/substations/{id}/installations",
           "get /solar/v1/installations",
           "post /solar/v1/installations",
@@ -116,8 +121,10 @@ function swaggerHtml() {
           "delete /solar/v1/installations/{id}",
           "get /solar/v1/installations/{id}/readings/latest",
           "get /solar/v1/installations/{id}/readings/summary",
+          "get /solar/v1/installations/{id}/readings/{readingId}",
           "get /solar/v1/installations/{id}/readings",
-          "post /solar/v1/installations/{id}/readings"
+          "post /solar/v1/installations/{id}/readings",
+          "get /solar/v1/readings"
         ];
         const key = (op) => {
           if (op && typeof op.get === "function") {
@@ -184,7 +191,8 @@ app.use((req, res) => {
   res.status(404).json({
     error: {
       code: "RESOURCE_NOT_FOUND",
-      message: "Resource not found"
+      message: "Resource not found",
+      details: []
     }
   });
 });

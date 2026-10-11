@@ -2,7 +2,7 @@ const { Province, District, Substation, Installation } = require("../models");
 const { fail } = require("../middleware/errors");
 
 function forbidden() {
-  fail(403, "FORBIDDEN", "Access denied: resource outside jurisdiction");
+  fail(403, "FORBIDDEN", "Access denied: caller jurisdiction does not include this resource");
 }
 
 async function districtRecord(id) {

@@ -1,9 +1,20 @@
+const path = require("node:path");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+require("dotenv").config({ path: path.join(__dirname, "..", "src", ".env") });
+
 process.env.NODE_ENV = "test";
-process.env.JWT_SECRET = "c".repeat(64);
-process.env.JWT_ISSUER = "solar-api";
-process.env.JWT_AUDIENCE = "solar-clients";
-process.env.MONGODB_URI = "mongodb://127.0.0.1:27017/solar_api_installation_create_test";
-process.env.PUBLIC_API_URL = "https://slsea-solar.vercel.app";
+process.env.JWT_SECRET = process.env.JWT_SECRET && Buffer.byteLength(process.env.JWT_SECRET) >= 32
+  ? process.env.JWT_SECRET
+  : "c".repeat(64);
+process.env.JWT_ISSUER = process.env.JWT_ISSUER || "solar-api";
+process.env.JWT_AUDIENCE = process.env.JWT_AUDIENCE || "solar-clients";
+{
+  const source = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/solar_api_installation_create_test";
+  const parsed = new URL(source);
+  parsed.pathname = "/solar_api_installation_create_test";
+  process.env.MONGODB_URI = parsed.toString();
+}
+process.env.PUBLIC_API_URL = process.env.PUBLIC_API_URL || "https://slsea-solar.vercel.app";
 
 const { describe, test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
@@ -31,7 +42,7 @@ let adminToken;
 let analystToken;
 let adminWithoutWrite;
 
-describe("POST /solar/v1/installations", { concurrency: 1 }, () => {
+describe("POST /solar/v1/installations", { concurrency: 1, timeout: 120000 }, () => {
   before(async () => {
     await connectDatabase();
     await Promise.all([

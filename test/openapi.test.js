@@ -20,7 +20,7 @@ test("swagger html has persistAuthorization set to false", async () => {
 
 test("openapi json documents nested paths and JWT bearer auth", async () => {
   const response = await request(app).get("/solar/v1/openapi.json").expect(200);
-  assert.equal(response.body.paths["/solar/v1/provinces/{id}/solar/v1/districts"] !== undefined, true);
+  assert.equal(response.body.paths["/solar/v1/provinces/{id}/districts"] !== undefined, true);
   assert.equal(response.body.components.securitySchemes.UserAuth.bearerFormat, "JWT");
 });
 
@@ -64,11 +64,11 @@ test("authenticateUser rejects missing or invalid Bearer JWT with 401", async ()
   const missing = { get: () => null };
   await assert.rejects(
     async () => authenticateUser(missing, res, () => {}),
-    (err) => err.status === 401 && err.message === "Invalid user identification"
+    (err) => err.status === 401 && err.message === "Authorization Bearer token is required"
   );
   const invalid = { get: (name) => (name === "Authorization" ? "Bearer not-a-jwt" : null) };
   await assert.rejects(
     async () => authenticateUser(invalid, res, () => {}),
-    (err) => err.status === 401 && err.message === "Invalid user identification"
+    (err) => err.status === 401 && err.message === "Access token is invalid"
   );
 });
