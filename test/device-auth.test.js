@@ -22,7 +22,7 @@ const mongoose = require("mongoose");
 const request = require("supertest");
 const app = require("../src/app");
 const { connectDatabase } = require("../src/database");
-const { User, Substation, Installation, Reading } = require("../src/models");
+const { User, Province, District, Substation, Installation, Reading } = require("../src/models");
 const { Counter } = require("../src/models/counter");
 const { hashPassword, signUserToken } = require("../src/middleware/auth");
 
@@ -51,6 +51,8 @@ describe("device authentication", { concurrency: 1, timeout: 120000 }, () => {
     await connectDatabase();
     await Promise.all([
       User.deleteMany({}),
+      Province.deleteMany({}),
+      District.deleteMany({}),
       Substation.deleteMany({}),
       Installation.deleteMany({}),
       Reading.deleteMany({}),
@@ -66,6 +68,8 @@ describe("device authentication", { concurrency: 1, timeout: 120000 }, () => {
       role: "admin",
       jurisdiction_id: null
     });
+    await Province.create({ id: 1, name: "Western Province", code: "WP" });
+    await District.create({ id: 1, name: "Colombo", code: "CM", province_id: 1 });
     await Substation.create({ id: 1, name: "Grid", capacity_mva: 10, district_id: 1 });
     otherKey = "f".repeat(64);
     await Installation.create({

@@ -6,7 +6,7 @@ const userSchema = new Schema({
   name: { type: String, required: true, trim: true },
   email: { type: String, required: true, lowercase: true, trim: true, unique: true },
   passwordHash: { type: String, required: true, select: false },
-  role: { type: String, enum: ["admin", "national", "province", "district"], required: true },
+  role: { type: String, enum: ["admin", "national", "province", "district", "substation", "installation"], required: true },
   jurisdiction_id: { type: Number, default: null }
 }, options);
 userSchema.index({ role: 1 });

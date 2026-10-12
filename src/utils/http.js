@@ -82,4 +82,4 @@ function sendPage(req, res, page) {
   if (tagMatches(req.get("If-None-Match"), tag, true)) return res.status(304).end();
   return res.json(page);
 }
-module.exports = { entityTag, sendRepresentation, requireMatch, paginate, sendPage };
+module.exports = { entityTag, tagMatches, sendRepresentation, requireMatch, paginate, sendPage };

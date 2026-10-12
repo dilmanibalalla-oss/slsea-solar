@@ -24,7 +24,7 @@ const request = require("supertest");
 const app = require("../src/app");
 const config = require("../src/config");
 const { connectDatabase } = require("../src/database");
-const { User, Substation, Installation, Reading } = require("../src/models");
+const { User, Province, District, Substation, Installation, Reading } = require("../src/models");
 const { Counter } = require("../src/models/counter");
 const { signUserToken } = require("../src/middleware/auth");
 
@@ -47,6 +47,8 @@ describe("POST /solar/v1/installations", { concurrency: 1, timeout: 120000 }, ()
     await connectDatabase();
     await Promise.all([
       User.deleteMany({}),
+      Province.deleteMany({}),
+      District.deleteMany({}),
       Substation.deleteMany({}),
       Installation.deleteMany({}),
       Reading.deleteMany({}),
@@ -72,7 +74,10 @@ describe("POST /solar/v1/installations", { concurrency: 1, timeout: 120000 }, ()
         jurisdiction_id: null
       }
     ]);
-    await Substation.create({ id: 1, name: "Test Substation", capacity_mva: 10, district_id: 1 });
+    await Province.create({ id: 1, name: "Western Province", code: "WP" });
+    await District.create({ id: 1, name: "Colombo", code: "CM", province_id: 1 });
+    await Substation.create({ id: 1, name: "Colombo Grid Substation", capacity_mva: 10, district_id: 1 });
+    await Substation.create({ id: 2, name: "Orphan Grid", capacity_mva: 5, district_id: 99 });
     const admin = await User.findOne({ id: 1 }).lean();
     const analyst = await User.findOne({ id: 2 }).lean();
     adminToken = signUserToken(admin);
@@ -136,6 +141,17 @@ describe("POST /solar/v1/installations", { concurrency: 1, timeout: 120000 }, ()
     assert.equal(await Installation.countDocuments(), beforeCount);
   });
 
+  test("rejects a substation that is not under a district of a province", async () => {
+    const beforeCount = await Installation.countDocuments();
+    const response = await request(app)
+      .post("/solar/v1/installations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ ...site, meter_id: "SLMTR-ORPHAN", substation_id: 2 })
+      .expect(404);
+    assert.equal(response.body.error.message, "District not found");
+    assert.equal(await Installation.countDocuments(), beforeCount);
+  });
+
   test("creates an installation, returns the key once, and accepts it for readings", async () => {
     const created = await request(app)
       .post("/solar/v1/installations")
@@ -148,6 +164,11 @@ describe("POST /solar/v1/installations", { concurrency: 1, timeout: 120000 }, ()
     assert.equal(created.body.installation.api_key, undefined);
     assert.equal(created.body.installation.name, site.name);
     assert.equal(created.body.installation.substation_id, 1);
+    const onSubstation = await request(app)
+      .get("/solar/v1/substations/1/installations")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .expect(200);
+    assert.equal(onSubstation.body.some((row) => row.id === id), true);
     assert.match(created.body.api_key, /^[a-f0-9]{64}$/);
 
     const fetched = await request(app)

@@ -163,7 +163,9 @@ async function loginThrottle(req, res, next) {
     ).lean();
   }
   if (bucket.count > 20) {
-    fail(401, "INVALID_CREDENTIALS", "Invalid credentials");
+    const retryAfter = Math.max(1, Math.ceil(((window + 1) * windowMs - Date.now()) / 1000));
+    res.set("Retry-After", String(retryAfter));
+    fail(429, "TOO_MANY_REQUESTS", "Too many login attempts. Retry after the indicated window.");
   }
   next();
 }

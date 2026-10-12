@@ -83,6 +83,18 @@ test("openapi contract: tags, schemas, login, nested paths, security", () => {
   ]);
   assert.deepEqual(spec.components.schemas.ErrorResponse.required, ["error"]);
   assert.equal(spec.paths["/solar/v1/auth/login"].post.responses["401"].content["application/json"].example.error.code, "INVALID_CREDENTIALS");
+  assert.equal(spec.paths["/solar/v1/auth/login"].post.responses["429"].$ref, "#/components/responses/TooManyLogins");
+  assert.equal(spec.paths["/solar/v1/installations/{id}"].put.responses["412"], undefined);
+  assert.equal(spec.paths["/solar/v1/installations/{id}"].put.responses["428"], undefined);
+  assert.equal(
+    spec.paths["/solar/v1/installations/{id}"].put.responses["404"].content["application/json"].examples.missingSubstation.value.error.message,
+    "Substation not found"
+  );
+  assert.equal(spec.components.schemas.LoginResponse.properties.user.properties.username.example, "admin");
+  assert.equal(spec.components.schemas.LoginResponse.properties.user.properties.role.example, "admin");
+  assert.deepEqual(spec.paths["/solar/v1/installations/{id}/readings"].get.parameters.find((p) => p.name === "limit").schema, {
+    type: "integer", default: 50, minimum: 1, maximum: 200
+  });
   assert.equal(spec.paths["/solar/v1/provinces/{id}"].get.responses["404"].content["application/json"].example.error.message, "Province not found");
   assert.equal(spec.paths["/solar/v1/districts/{id}"].get.responses["404"].content["application/json"].example.error.message, "District not found");
   assert.equal(spec.paths["/solar/v1/installations/{id}"].put.responses["401"].$ref, "#/components/responses/UnauthorizedBearer");
@@ -116,6 +128,9 @@ test("openapi contract: tags, schemas, login, nested paths, security", () => {
   ]);
   assert.deepEqual(Object.keys(spec.paths["/solar/v1/installations"]), ["get", "post"]);
   assert.equal(spec.paths["/solar/v1/installations"].post.responses["201"].content["application/json"].example.api_key, "YOUR_INSTALLATION_API_KEY");
+  assert.equal(spec.paths["/solar/v1/installations"].post.responses["201"].content["application/json"].example.device_api_key, undefined);
+  assert.equal(spec.components.securitySchemes.ApiKeyAuth.type, "apiKey");
+  assert.equal(spec.components.securitySchemes.ApiKeyAuth.in, "header");
   assert.deepEqual(Object.keys(spec.paths["/solar/v1/installations/{id}"]), ["get", "put", "delete"]);
   assert.deepEqual(Object.keys(spec.paths["/solar/v1/provinces"]), ["get"]);
   assert.deepEqual(Object.keys(spec.components.securitySchemes), ["UserAuth", "ApiKeyAuth"]);
@@ -130,6 +145,8 @@ test("openapi contract: tags, schemas, login, nested paths, security", () => {
   assert.equal(spec.paths["/solar/v1/auth/login/national"].post.requestBody.content["application/json"].example.username, "national");
   assert.equal(spec.paths["/solar/v1/auth/login/provincial"].post.requestBody.content["application/json"].example.username, "western");
   assert.equal(spec.paths["/solar/v1/auth/login/district"].post.requestBody.content["application/json"].example.username, "colombo");
+  assert.equal(spec.paths["/solar/v1/auth/login/substation"], undefined);
+  assert.equal(spec.paths["/solar/v1/auth/login/installation"], undefined);
   assert.equal(spec.paths["/solar/v1/auth/login/national"].post.security.length, 0);
   assert.deepEqual(spec.paths["/solar/v1/installations/{id}/readings"].post.security, [{ ApiKeyAuth: [] }]);
   assert.equal(spec.paths["/docs"], undefined);

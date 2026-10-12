@@ -8,6 +8,7 @@ const {
 const present = require("../presenters");
 const scope = require("../services/scope");
 const { fail } = require("../middleware/errors");
+const { tagMatches } = require("../utils/http");
 
 const SORTABLE = new Set(["timestamp", "id", "power_kw", "cumulative_energy_kwh", "voltage"]);
 
@@ -22,8 +23,12 @@ function historySort(options) {
   return { [field]: direction, id: direction };
 }
 
+function periodSummaryResult(summary, reason) {
+  return { summary, summary_unavailable_reason: reason };
+}
+
 async function historyPeriodSummary(installationId, filter, options, count) {
-  if (count < 2) return null;
+  if (count < 2) return periodSummaryResult(null, "insufficient_readings");
   const from = options.from ? new Date(options.from) : null;
   const to = options.to ? new Date(options.to) : null;
   const start = from
@@ -32,24 +37,26 @@ async function historyPeriodSummary(installationId, filter, options, count) {
   const end = to
     ? await Reading.findOne({ installation_id: installationId, timestamp: { $lte: to } }).sort({ timestamp: -1, id: -1 }).lean()
     : await Reading.findOne(filter).sort({ timestamp: -1, id: -1 }).lean();
-  if (!start || !end) return null;
+  if (!start || !end) return periodSummaryResult(null, "insufficient_readings");
   const elapsedMs = new Date(end.timestamp) - new Date(start.timestamp);
-  if (elapsedMs <= 0) return null;
+  if (elapsedMs <= 0) return periodSummaryResult(null, "insufficient_readings");
   const series = await Reading.find({
     installation_id: installationId,
     timestamp: { $gte: start.timestamp, $lte: end.timestamp }
   }).sort({ timestamp: 1, id: 1 }).select("cumulative_energy_kwh").lean();
   for (let i = 1; i < series.length; i += 1) {
-    if (series[i].cumulative_energy_kwh < series[i - 1].cumulative_energy_kwh) return null;
+    if (series[i].cumulative_energy_kwh < series[i - 1].cumulative_energy_kwh) {
+      return periodSummaryResult(null, "meter_reset");
+    }
   }
   const energy = end.cumulative_energy_kwh - start.cumulative_energy_kwh;
-  if (energy < 0) return null;
+  if (energy < 0) return periodSummaryResult(null, "meter_reset");
   const hours = elapsedMs / 3600000;
-  return {
+  return periodSummaryResult({
     energyGeneratedKwh: Number(energy.toFixed(3)),
     averagePowerKw: Number((energy / hours).toFixed(3)),
     readingCount: count
-  };
+  }, null);
 }
 
 async function periodFilter(id, options) {
@@ -68,8 +75,8 @@ async function period(req, res) {
   const options = historyQuery(req);
   const filter = await periodFilter(id, options);
   const count = await Reading.countDocuments(filter);
-  const summary = await historyPeriodSummary(id, filter, options, count);
-  res.json({ summary });
+  const { summary, summary_unavailable_reason } = await historyPeriodSummary(id, filter, options, count);
+  res.json({ summary, summary_unavailable_reason });
 }
 
 async function getOne(req, res) {
@@ -101,7 +108,7 @@ async function history(req, res) {
     Reading.find(filter).sort(historySort(options)).skip(skip).limit(options.limit).lean(),
     Reading.countDocuments(filter)
   ]);
-  const summary = await historyPeriodSummary(id, filter, options, count);
+  const { summary, summary_unavailable_reason } = await historyPeriodSummary(id, filter, options, count);
   const origin = `${req.protocol}://${req.get("host")}`;
   const path = `${config.base}/installations/${id}/readings`;
   const link = (page) => {
@@ -120,12 +127,13 @@ async function history(req, res) {
     next: options.page < pages ? link(options.page + 1) : null,
     previous: options.page > 1 && pages > 0 ? link(options.page - 1) : null,
     data: rows.map(present.reading),
-    summary
+    summary,
+    summary_unavailable_reason
   };
   const tag = entityTag(body);
   res.set("ETag", tag);
   res.set("Cache-Control", "private, no-cache");
-  if (req.get("If-None-Match") && req.get("If-None-Match") === tag) {
+  if (tagMatches(req.get("If-None-Match"), tag, true)) {
     return res.status(304).end();
   }
   res.json(body);
@@ -245,7 +253,7 @@ async function regional(req, res) {
     const tag = entityTag(empty);
     res.set("ETag", tag);
     res.set("Cache-Control", "private, no-cache");
-    if (req.get("If-None-Match") && req.get("If-None-Match") === tag) return res.status(304).end();
+    if (tagMatches(req.get("If-None-Match"), tag, true)) return res.status(304).end();
     return res.json(empty);
   }
   const skip = (options.page - 1) * options.limit;
@@ -264,7 +272,7 @@ async function regional(req, res) {
   const tag = entityTag(body);
   res.set("ETag", tag);
   res.set("Cache-Control", "private, no-cache");
-  if (req.get("If-None-Match") && req.get("If-None-Match") === tag) return res.status(304).end();
+  if (tagMatches(req.get("If-None-Match"), tag, true)) return res.status(304).end();
   res.json(body);
 }
 

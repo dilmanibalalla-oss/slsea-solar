@@ -9,14 +9,36 @@ async function districtRecord(id) {
   return District.findOne({ id }).lean();
 }
 
+async function assignedSubstation(user) {
+  if (user.role === "substation") {
+    return Substation.findOne({ id: user.jurisdiction_id }).lean();
+  }
+  if (user.role === "installation") {
+    const installation = await Installation.findOne({ id: user.jurisdiction_id, deleted_at: null }).lean();
+    if (!installation) return null;
+    return Substation.findOne({ id: installation.substation_id }).lean();
+  }
+  return null;
+}
+
+async function assignedDistrictId(user) {
+  if (user.role === "district") return user.jurisdiction_id;
+  const substation = await assignedSubstation(user);
+  return substation ? substation.district_id : null;
+}
+
+async function assignedProvinceId(user) {
+  if (user.role === "province") return user.jurisdiction_id;
+  const districtId = await assignedDistrictId(user);
+  if (districtId == null) return null;
+  const district = await districtRecord(districtId);
+  return district ? district.province_id : null;
+}
+
 async function canAccessProvince(user, provinceId) {
   if (user.role === "admin" || user.role === "national") return true;
-  if (user.role === "province") return user.jurisdiction_id === provinceId;
-  if (user.role === "district") {
-    const assigned = await districtRecord(user.jurisdiction_id);
-    return Boolean(assigned && assigned.province_id === provinceId);
-  }
-  return false;
+  const assigned = await assignedProvinceId(user);
+  return assigned === provinceId;
 }
 
 async function canAccessDistrict(user, districtId) {
@@ -26,18 +48,31 @@ async function canAccessDistrict(user, districtId) {
     const district = await districtRecord(districtId);
     return Boolean(district && district.province_id === user.jurisdiction_id);
   }
+  if (user.role === "substation" || user.role === "installation") {
+    return await assignedDistrictId(user) === districtId;
+  }
   return false;
 }
 
 async function canAccessSubstation(user, substationId) {
   const substation = await Substation.findOne({ id: substationId }).lean();
   if (!substation) return { substation: null, allowed: false };
+  if (user.role === "substation") {
+    return { substation, allowed: user.jurisdiction_id === substationId };
+  }
+  if (user.role === "installation") {
+    const assigned = await assignedSubstation(user);
+    return { substation, allowed: Boolean(assigned && assigned.id === substationId) };
+  }
   return { substation, allowed: await canAccessDistrict(user, substation.district_id) };
 }
 
 async function canAccessInstallation(user, installationId) {
   const installation = await Installation.findOne({ id: installationId, deleted_at: null }).lean();
   if (!installation) return { installation: null, allowed: false };
+  if (user.role === "installation") {
+    return { installation, substation: null, allowed: user.jurisdiction_id === installationId };
+  }
   const { substation, allowed } = await canAccessSubstation(user, installation.substation_id);
   return { installation, substation, allowed };
 }
@@ -75,12 +110,9 @@ async function listProvinces(user) {
   if (user.role === "admin" || user.role === "national") {
     return Province.find().sort({ id: 1 }).lean();
   }
-  if (user.role === "province") {
-    return Province.find({ id: user.jurisdiction_id }).sort({ id: 1 }).lean();
-  }
-  const assigned = await districtRecord(user.jurisdiction_id);
-  if (!assigned) return [];
-  return Province.find({ id: assigned.province_id }).sort({ id: 1 }).lean();
+  const provinceId = await assignedProvinceId(user);
+  if (provinceId == null) return [];
+  return Province.find({ id: provinceId }).sort({ id: 1 }).lean();
 }
 
 async function listDistricts(user, provinceId = null) {
@@ -88,10 +120,21 @@ async function listDistricts(user, provinceId = null) {
   if (provinceId != null) filter.province_id = provinceId;
   if (user.role === "province") filter.province_id = user.jurisdiction_id;
   if (user.role === "district") filter.id = user.jurisdiction_id;
+  if (user.role === "substation" || user.role === "installation") {
+    const districtId = await assignedDistrictId(user);
+    if (districtId == null) return [];
+    filter.id = districtId;
+  }
   return District.find(filter).sort({ id: 1 }).lean();
 }
 
 async function listSubstations(user, districtId = null) {
+  if (user.role === "substation" || user.role === "installation") {
+    const substation = await assignedSubstation(user);
+    if (!substation) return [];
+    if (districtId != null && substation.district_id !== districtId) return [];
+    return [substation];
+  }
   let districts = await listDistricts(user);
   if (districtId != null) districts = districts.filter((row) => row.id === districtId);
   const ids = districts.map((row) => row.id);
@@ -99,6 +142,12 @@ async function listSubstations(user, districtId = null) {
 }
 
 async function listInstallations(user, substationId = null) {
+  if (user.role === "installation") {
+    const installation = await Installation.findOne({ id: user.jurisdiction_id, deleted_at: null }).lean();
+    if (!installation) return [];
+    if (substationId != null && installation.substation_id !== substationId) return [];
+    return [installation];
+  }
   const substations = await listSubstations(user);
   let ids = substations.map((row) => row.id);
   if (substationId != null) ids = ids.filter((value) => value === substationId);

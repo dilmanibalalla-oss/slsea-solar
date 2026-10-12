@@ -16,11 +16,13 @@ module.exports = function specPaths({
   const type415 = refResponse("UnsupportedMediaType");
   const dupReading = refResponse("DuplicateReading");
   const dupMeter = refResponse("DuplicateMeterId");
-  function loginPath(summary, credentials, userExample) {
+  const tooMany = refResponse("TooManyLogins");
+  function loginPath(summary, credentials, userExample, description) {
     return {
       post: {
         tags: ["Authentication"],
         summary,
+        ...(description ? { description } : {}),
         security: [],
         requestBody: jsonBody({ $ref: "#/components/schemas/LoginPayload" }, credentials),
         responses: {
@@ -43,7 +45,8 @@ module.exports = function specPaths({
             "Username and password did not match a stored account",
             errorEnvelope("INVALID_CREDENTIALS", "Invalid credentials")
           ),
-          415: type415
+          415: type415,
+          429: tooMany
         }
       }
     };
@@ -72,7 +75,7 @@ module.exports = function specPaths({
       name: "Provincial Analyst",
       email: "western@slsea.example",
       role: "province"
-    }),
+    }, "The password is the same for every province. Only the username changes: the province name in lowercase letters with spaces removed, such as western or northwestern."),
     "/solar/v1/auth/login/district": loginPath("District analyst login", {
       username: "colombo",
       password: analystPassword
@@ -82,12 +85,12 @@ module.exports = function specPaths({
       name: "District Analyst",
       email: "colombo@slsea.example",
       role: "district"
-    }),
+    }, "The password is the same for every district. Only the username changes: the district name in lowercase letters with spaces removed, such as colombo or gampaha."),
     "/solar/v1/provinces": {
       get: {
         tags: ["Provinces"],
         summary: "Return provinces the caller is allowed to see",
-        description: "Bare JSON array. national and admin receive every province; a province user receives their assigned province; a district user receives that district's parent province.",
+        description: "Bare JSON array. national and admin receive every province; a province user receives their assigned province; a district, substation, or installation user receives the parent province of their assignment.",
         responses: {
           200: {
             description: "Province array with no pagination wrapper",
@@ -134,7 +137,7 @@ module.exports = function specPaths({
       get: {
         tags: ["Districts"],
         summary: "Return districts the caller is allowed to see",
-        description: "Bare JSON array. national and admin receive every district; a province user receives districts in their province; a district user receives only their assigned district.",
+        description: "Bare JSON array. national and admin receive every district; a province user receives districts in their province; a district user receives only their assigned district; a substation or installation user receives only the parent district.",
         responses: {
           200: {
             description: "District array with no pagination wrapper",
@@ -181,7 +184,7 @@ module.exports = function specPaths({
       get: {
         tags: ["Districts"],
         summary: "District generation totals",
-        description: "Counts active sites in the district, sums each site's newest power_kw and cumulative_energy_kwh, and reports the highest power_kw among those sites.",
+        description: "Counts active sites in the district (including sites with no readings). current_power_kw is the sum of each site's latest-known power_kw and may be stale. total_energy_kwh is the sum of latest cumulative meter counters, not today's generation. peak_power_kw is the maximum power_kw among all stored readings for those sites. Sites with no readings contribute 0 to the sums.",
         parameters: [{ ...idParam, description: "District integer id" }],
         responses: {
           200: {
@@ -199,7 +202,7 @@ module.exports = function specPaths({
       get: {
         tags: ["Substations"],
         summary: "Return substations the caller is allowed to see",
-        description: "Bare JSON array using the GridSubstation presenter. Admin and national see every substation. A province user sees substations in districts of their assigned province. A district user sees substations in their assigned district.",
+        description: "Bare JSON array using the GridSubstation presenter. Admin and national see every substation. A province user sees substations in districts of their assigned province. A district user sees substations in their assigned district. A substation user sees only their assigned substation. An installation user sees only that site's parent substation.",
         responses: {
           200: {
             description: "GridSubstation array with no pagination wrapper",
@@ -247,7 +250,7 @@ module.exports = function specPaths({
       get: {
         tags: ["Solar Installations"],
         summary: "Return solar sites the caller is allowed to see",
-        description: "Active installations in jurisdiction. Soft-deleted rows and api_key values are omitted.",
+        description: "Active installations in jurisdiction. Soft-deleted rows and api_key values are omitted. Admin and national see every active site. A province or district user sees sites inside their territory. A substation user sees sites on their substation. An installation user sees only their assigned site.",
         responses: {
           200: {
             description: "SolarInstallation array",
@@ -259,7 +262,7 @@ module.exports = function specPaths({
       post: {
         tags: ["Solar Installations"],
         summary: "Create a solar installation",
-        description: "Administrator JWT with the metadata-write scope. The parent substation must already exist. The response returns the new site and its api_key once; later GET, PUT and DELETE responses omit the key. In Swagger: log in with POST /solar/v1/auth/login, authorize that JWT as UserAuth, call this operation, then copy the returned installation id and api_key. Authorize ApiKeyAuth with that key and POST /solar/v1/installations/{id}/readings for the new site. The example key is a placeholder, not a live credential.",
+        description: "Administrator JWT with the metadata-write scope. The parent grid substation must already exist, that substation's district must exist, and that district's province must exist. The new site is stored with that substation_id, so it stays under the substation, district, and province. The response returns the new site and its api_key once; later GET, PUT and DELETE responses omit the key. In Swagger: log in with POST /solar/v1/auth/login, authorize that JWT as UserAuth, call this operation, then copy the returned installation id and api_key. Authorize ApiKeyAuth with that key and POST /solar/v1/installations/{id}/readings for the new site. The example key is a placeholder, not a live credential.",
         requestBody: jsonBody(installationInput, putInstallationExample),
         responses: {
           201: {
@@ -275,7 +278,7 @@ module.exports = function specPaths({
                 api_key: {
                   type: "string",
                   example: "YOUR_INSTALLATION_API_KEY",
-                  description: "Newly generated device key. Shown only in this response. The example is a placeholder."
+                  description: "Newly generated installation API key. Paste it into the ApiKeyAuth Authorize dialog. Shown only in this response. The example is a placeholder."
                 }
               }
             }, {
@@ -312,7 +315,7 @@ module.exports = function specPaths({
       put: {
         tags: ["Solar Installations"],
         summary: "Replace solar installation metadata",
-        description: "Writes the listed fields on an existing, not-deleted site. Administrator JWT required. api_key cannot be supplied here.",
+        description: "Full replacement of writable metadata on an existing, not-deleted site. Every field in SolarInstallation except id is required. The parent substation_id must already exist; a missing parent is 404 and the installation is left unchanged. Administrator JWT required. api_key cannot be supplied. If-Match is not evaluated.",
         parameters: [{ ...idParam, description: "Solar installation integer id" }],
         requestBody: jsonBody(installationInput, putInstallationExample),
         responses: {
@@ -323,14 +326,29 @@ module.exports = function specPaths({
           400: body400,
           401: auth401,
           403: forbidA,
-          404: notFound("Solar installation not found"),
+          404: errorResponse(
+            "Installation missing/soft-deleted, or substation_id does not exist",
+            errorEnvelope("RESOURCE_NOT_FOUND", "Solar installation not found"),
+            {
+              examples: {
+                missingInstallation: {
+                  summary: "Installation does not exist or is soft-deleted",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "Solar installation not found")
+                },
+                missingSubstation: {
+                  summary: "Referenced parent substation does not exist; installation is unchanged",
+                  value: errorEnvelope("RESOURCE_NOT_FOUND", "Substation not found")
+                }
+              }
+            }
+          ),
           415: type415
         }
       },
       delete: {
         tags: ["Solar Installations"],
         summary: "Soft-delete a solar installation",
-        description: "Sets deleted_at and keeps the row. Later reads treat the site as missing. Administrator JWT required. HTTP 200 with JSON, not 204.",
+        description: "Sets deleted_at and keeps the row. Later reads treat the site as missing. Administrator JWT required. HTTP 200 with JSON, not 204. If-Match is not evaluated.",
         parameters: [{ ...idParam, description: "Solar installation integer id" }],
         responses: {
           200: {
@@ -387,7 +405,7 @@ module.exports = function specPaths({
       get: {
         tags: ["Readings"],
         summary: "Period energy generated for a site",
-        description: "Uses stored cumulative_energy_kwh readings. Energy generated (kWh) = last meter reading − first meter reading in the selected from/to window (hour, day or month). Average power (kW) = energy generated ÷ elapsed hours. Example: 08:00 = 1250.5 kWh, 09:00 = 1254.2 kWh → 3.7 kWh and 3.7 kW. summary is null if a boundary reading is missing or the meter reset. POST /readings still stores the original samples; this route only calculates.",
+        description: "Uses stored cumulative_energy_kwh readings over the filtered from/to period, independent of page size. Energy generated (kWh) = last meter reading − first. Average power (kW) = energy generated ÷ elapsed hours. Example: 08:00 = 1250.5 kWh, 09:00 = 1254.2 kWh → 3.7 kWh and 3.7 kW. summary is null when it cannot be computed; summary_unavailable_reason is then insufficient_readings or meter_reset. POST /readings still stores the original samples; this route only calculates.",
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "integer" }, description: "Installation ID" },
           { name: "from", in: "query", schema: { type: "string", format: "date-time" }, description: "Period start ISO date-time" },
@@ -407,6 +425,11 @@ module.exports = function specPaths({
                     averagePowerKw: { type: "number", example: 3.7 },
                     readingCount: { type: "integer", example: 2 }
                   }
+                },
+                summary_unavailable_reason: {
+                  type: "string",
+                  nullable: true,
+                  enum: ["insufficient_readings", "meter_reset"]
                 }
               }
             }, {
@@ -414,7 +437,8 @@ module.exports = function specPaths({
                 energyGeneratedKwh: 3.7,
                 averagePowerKw: 3.7,
                 readingCount: 2
-              }
+              },
+              summary_unavailable_reason: null
             })
           },
           400: query400,
@@ -461,15 +485,15 @@ module.exports = function specPaths({
       get: {
         tags: ["Readings"],
         summary: "List readings and period energy for a site",
-        description: "Paginated readings for the installation. from/to bound timestamp. sort picks timestamp, id, power_kw, cumulative_energy_kwh or voltage; order is asc or desc. summary.energyGeneratedKwh is last cumulative_energy_kwh minus first over the period (for example 1254.2 − 1250.5 = 3.7 kWh in one hour, so averagePowerKw is 3.7). summary is null if boundary readings are missing or the meter reset. POST still stores raw readings; this GET computes the period totals. If-None-Match may yield 304.",
+        description: "Paginated readings for the installation. Default sort is timestamp desc with reading id as a tie-breaker, so the first page is newest first. from/to bound timestamp. summary uses every matching reading in the period, not the current page. summary.energyGeneratedKwh is last cumulative_energy_kwh minus first (for example 1254.2 − 1250.5 = 3.7 kWh in one hour, so averagePowerKw is 3.7). When summary is null, summary_unavailable_reason is insufficient_readings or meter_reset. If-None-Match may yield 304.",
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "integer" }, description: "Installation ID" },
-          { name: "page", in: "query", schema: { type: "integer", default: 1 }, description: "1-based page number" },
-          { name: "limit", in: "query", schema: { type: "integer", default: 50 }, description: "Page size" },
+          { name: "page", in: "query", schema: { type: "integer", default: 1, minimum: 1 }, description: "1-based page number" },
+          { name: "limit", in: "query", schema: { type: "integer", default: 50, minimum: 1, maximum: 200 }, description: "Page size, maximum 200" },
           { name: "from", in: "query", schema: { type: "string", format: "date-time" }, description: "Start ISO date-time filter (inclusive lower bound on timestamp)" },
           { name: "to", in: "query", schema: { type: "string", format: "date-time" }, description: "End ISO date-time filter (inclusive upper bound on timestamp)" },
-          { name: "sort", in: "query", schema: { type: "string", default: "timestamp" }, description: "Order field: timestamp, id, power_kw, cumulative_energy_kwh, or voltage" },
-          { name: "order", in: "query", schema: { type: "string", default: "desc", enum: ["asc", "desc"] }, description: "Ascending or descending order" },
+          { name: "sort", in: "query", schema: { type: "string", default: "timestamp", enum: ["timestamp", "id", "power_kw", "cumulative_energy_kwh", "voltage"] }, description: "Sort field; timestamp uses reading id as a stable tie-breaker" },
+          { name: "order", in: "query", schema: { type: "string", default: "desc", enum: ["asc", "desc"] }, description: "Ascending or descending order. Default desc." },
           { name: "If-None-Match", in: "header", schema: { type: "string" }, description: "ETag from a previous GET of this page; matching value yields 304" }
         ],
         responses: {
@@ -494,7 +518,7 @@ module.exports = function specPaths({
       post: {
         tags: ["Readings"],
         summary: "Store one meter reading",
-        description: "Writes the original meter reading for the path installation. Use that site's X-API-Key only; a user JWT is not accepted. Location identifies the created reading at /solar/v1/installations/{id}/readings/{readingId}.",
+        description: "Writes the original meter reading for the path installation. Authorize ApiKeyAuth with that site's api_key. Swagger sends the saved value in the X-API-Key header. A human Bearer token is not accepted. Location identifies the created reading at /solar/v1/installations/{id}/readings/{readingId}.",
         security: [{ ApiKeyAuth: [] }],
         parameters: [{ ...idParam, description: "Solar installation integer id receiving the reading" }],
         requestBody: jsonBody({ $ref: "#/components/schemas/CreateReadingPayload" }),
@@ -521,7 +545,7 @@ module.exports = function specPaths({
       get: {
         tags: ["Readings"],
         summary: "List permitted readings with optional regional filters",
-        description: "Read-only analytical listing. Geographic filters province_id, district_id and substation_id are combined with AND and then intersected with the caller's jurisdiction; they never broaden access. Inconsistent nesting (district not in province, or substation not in district/province) is 400. A filter that names an existing resource outside jurisdiction is 403. Missing named geography is 404. This endpoint does not include an energy summary.",
+        description: "Read-only analytical listing. Geographic filters province_id, district_id and substation_id are combined with AND and then intersected with the caller's jurisdiction; they never broaden access. Admin and national see readings for every installation in the filter. A province user sees readings in their province, a district user sees readings in their district, a substation user sees readings for installations on their substation, and an installation user sees readings for their site only. Inconsistent nesting (district not in province, or substation not in district/province) is 400. A filter that names an existing resource outside jurisdiction is 403. Missing named geography is 404. This endpoint does not include an energy summary.",
         parameters: [
           { name: "province_id", in: "query", schema: { type: "integer" }, description: "Keep readings whose installation is in this province" },
           { name: "district_id", in: "query", schema: { type: "integer" }, description: "Keep readings whose installation is in this district" },
