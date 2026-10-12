@@ -110,6 +110,18 @@ const componentResponses = {
     errorEnvelope("VALIDATION_ERROR", "district_id is not in the requested province", [
       { path: "district_id", message: "district_id is not in the requested province" }
     ])
+  ),
+  TooManyLogins: errorResponse(
+    "Login attempt threshold exceeded for this client in the current 15-minute window",
+    errorEnvelope("TOO_MANY_REQUESTS", "Too many login attempts. Retry after the indicated window."),
+    {
+      headers: {
+        "Retry-After": {
+          schema: { type: "integer" },
+          description: "Seconds remaining in the current 15-minute limiter window"
+        }
+      }
+    }
   )
 };
 
@@ -164,19 +176,20 @@ const historyExample = {
   count: 2,
   next: null,
   previous: null,
-  data: [readingAtEight, readingExample],
+  data: [readingExample, readingAtEight],
   summary: {
     energyGeneratedKwh: 3.7,
     averagePowerKw: 3.7,
     readingCount: 2
-  }
+  },
+  summary_unavailable_reason: null
 };
 const loginUserExample = {
   id: 1,
-  username: "national_admin",
-  name: "National Admin",
-  email: "admin@slsea.gov.lk",
-  role: "national"
+  username: "admin",
+  name: "National Administrator",
+  email: "admin@slsea.example",
+  role: "admin"
 };
 const putInstallationExample = {
   name: "Solar Installation 001",
@@ -221,12 +234,13 @@ function jsonBody(schema, example) {
 
 const installationInput = {
   type: "object",
-  description: "Writable solar-site fields. api_key is never accepted or returned on this body.",
+  description: "Writable solar-site fields. PUT requires every listed property. api_key is never accepted on this body.",
+  required: ["name", "meter_id", "inverter_id", "substation_id", "latitude", "longitude", "capacity_kw"],
   properties: {
     name: { type: "string", description: "Display name of the solar site" },
     meter_id: { type: "string", description: "Utility meter identifier at the site" },
     inverter_id: { type: "string", description: "Inverter identifier at the site" },
-    substation_id: { type: "integer", description: "Integer id of the parent grid substation" },
+    substation_id: { type: "integer", description: "Integer id of an existing parent grid substation" },
     latitude: { type: "number", description: "Site latitude in decimal degrees" },
     longitude: { type: "number", description: "Site longitude in decimal degrees" },
     capacity_kw: { type: "number", description: "Nameplate capacity in kilowatts" }
@@ -310,14 +324,14 @@ const schemas = {
   },
   DistrictSummary: {
     type: "object",
-    description: "Aggregated generation metrics for installations in one district.",
+    description: "Aggregated generation metrics for active installations in one district. Sites with no stored readings are included in total_installations and contribute 0 to current_power_kw and total_energy_kwh. These figures are not limited to the current calendar day and have no freshness window.",
     properties: {
       district_id: { type: "integer", example: 1, description: "District integer id" },
       district_name: { type: "string", example: "Colombo", description: "District display name" },
-      total_installations: { type: "integer", example: 10, description: "Active (not soft-deleted) installations in the district" },
-      current_power_kw: { type: "number", example: 0, description: "Sum of each site's latest power_kw" },
-      total_energy_kwh: { type: "number", example: 4034.84, description: "Sum of each site's latest cumulative_energy_kwh" },
-      peak_power_kw: { type: "number", example: 13.61, description: "Maximum power_kw observed across those sites" }
+      total_installations: { type: "integer", example: 10, description: "Active (not soft-deleted) installations in the district, including sites that have never submitted a reading" },
+      current_power_kw: { type: "number", example: 0, description: "Sum of each site's latest-known power_kw. The sample can be hours or days old; it is not live instantaneous output. Sites with no readings contribute 0." },
+      total_energy_kwh: { type: "number", example: 4034.84, description: "Sum of each site's latest cumulative_energy_kwh meter counter. This is lifetime-to-last-sample energy, not energy generated today." },
+      peak_power_kw: { type: "number", example: 13.61, description: "Maximum power_kw among every stored reading for those installations, not only the latest sample per site. 0 when no readings exist." }
     }
   },
   RegionalReadingsEnvelope: {
@@ -369,12 +383,18 @@ const schemas = {
       summary: {
         type: "object",
         nullable: true,
-        description: "Energy over the selected period from last minus first cumulative kWh. Null when fewer than two usable boundary readings exist or the meter reset in the window.",
+        description: "Energy over the selected from/to period using every matching reading, independent of page size and sort. Last cumulative_energy_kwh minus first. Null when the period cannot be summarised.",
         properties: {
           energyGeneratedKwh: { type: "number", example: 3.7, description: "Last cumulative_energy_kwh minus first, in kWh" },
           averagePowerKw: { type: "number", example: 3.7, description: "energyGeneratedKwh divided by elapsed hours" },
-          readingCount: { type: "integer", example: 2, description: "Readings in the filtered period" }
+          readingCount: { type: "integer", example: 2, description: "Readings in the filtered period, not the current page size" }
         }
+      },
+      summary_unavailable_reason: {
+        type: "string",
+        nullable: true,
+        enum: ["insufficient_readings", "meter_reset"],
+        description: "Null when summary is present. insufficient_readings when fewer than two usable chronological samples exist. meter_reset when cumulative_energy_kwh decreases in the period (including a later recovery)."
       }
     }
   },
@@ -396,13 +416,13 @@ const schemas = {
     properties: {
       error: {
         type: "object",
-        required: ["code", "message"],
+        required: ["code", "message", "details"],
         properties: {
           code: { type: "string", description: "Machine-readable error code" },
           message: { type: "string", description: "Human-readable explanation for this failure" },
           details: {
             type: "array",
-            description: "Optional field-level validation issues. Empty on authentication, authorization and not-found errors.",
+            description: "Field-level validation issues when present. Always an array; empty on authentication, authorization, not-found, rate-limit and most conflict errors.",
             items: {
               type: "object",
               properties: {
@@ -418,10 +438,10 @@ const schemas = {
   LoginPayload: {
     type: "object",
     required: ["username", "password"],
-    description: "Stored account username and password. Login verifies the password hash on the matching user record and issues a JWT. Role and jurisdiction_id are not accepted on this body. Provisioned usernames are admin, national, western and colombo.",
+    description: "Stored account username and password. Login verifies the password hash on the matching user record and issues a JWT. Role and jurisdiction_id are not accepted on this body. Provisioned usernames are admin, national, one province account per province, one district account per district, one substation account per substation, and one installation account per active solar installation. Province usernames are the province name in lowercase without spaces, such as western and northwestern. District usernames are the district name in lowercase without spaces, such as colombo and gampaha. Substation and installation accounts use POST /solar/v1/auth/login with the record name in lowercase without spaces. Readings have no separate login; a caller sees readings only for installations inside their jurisdiction.",
     properties: {
-      username: { type: "string", example: "admin", description: "Existing account username. This example is documentation only." },
-      password: { type: "string", format: "password", example: "8QGuahGnXIYCL03f", description: "Existing account password. This example is documentation only and is not a live credential." }
+      username: { type: "string", example: "admin", description: "Existing account username. Demo Try-it-out usernames include admin, national, western and colombo. Other provinces and districts follow the same lowercase name pattern." },
+      password: { type: "string", format: "password", example: "8QGuahGnXIYCL03f", description: "Password for the username. The admin login example is the provisioned demo account; other schema copies are not additional live secrets." }
     }
   },
   LoginResponse: {
@@ -436,10 +456,10 @@ const schemas = {
         description: "Profile fields from the stored user record",
         properties: {
           id: { type: "integer", example: 1, description: "Public integer user id" },
-          username: { type: "string", example: "national_admin", description: "Account username" },
-          name: { type: "string", example: "National Admin", description: "Display name" },
-          email: { type: "string", example: "admin@slsea.gov.lk", description: "Account email" },
-          role: { type: "string", example: "national", description: "Stored role: admin, national, province, or district" }
+          username: { type: "string", example: "admin", description: "Account username matching the login example" },
+          name: { type: "string", example: "National Administrator", description: "Display name" },
+          email: { type: "string", example: "admin@slsea.example", description: "Account email" },
+          role: { type: "string", example: "admin", description: "Stored role: admin, national, province, district, substation, or installation" }
         }
       }
     }
@@ -504,12 +524,12 @@ function buildOpenApiDocument(req) {
     },
     servers: apiServers(req),
     tags: [
-      { name: "Authentication", description: "Obtain a JWT from an existing SLSEA account. Login itself is unauthenticated." },
+      { name: "Authentication", description: "Obtain a JWT from an existing SLSEA account. Login itself is unauthenticated. The password is the same for every province account and the same for every district account. Only the username changes: use the province or district name in lowercase letters with spaces removed, such as western, northwestern, colombo, and gampaha." },
       { name: "Provinces", description: "Province records and child districts, clipped to the signed-in user's territory." },
       { name: "Districts", description: "District records, substations in a district, and district-wide generation totals." },
-      { name: "Substations", description: "Grid substations the caller may see, plus solar sites attached to one substation." },
-      { name: "Solar Installations", description: "Solar sites: list, inspect with last reading, create, replace metadata, or soft-delete. The device api_key is returned only by the create response." },
-      { name: "Readings", description: "Latest reading, one-reading GET, paginated site history with period energy, regional listing without energy summary, and device ingest via X-API-Key." }
+      { name: "Substations", description: "Grid substations the caller may see, plus solar sites attached to one substation. A substation account is limited to its assigned substation, the same way a district account is limited to its district." },
+      { name: "Solar Installations", description: "Solar sites: list, inspect with last reading, create, replace metadata, or soft-delete. The device api_key is returned only by the create response. An installation account is limited to its assigned site." },
+      { name: "Readings", description: "Latest reading, one-reading GET, paginated site history with period energy, regional listing without energy summary, and device ingest via X-API-Key. Reading visibility follows the caller jurisdiction: province, district, substation, or installation." }
     ],
     paths: specPaths(),
     components: {
@@ -524,7 +544,7 @@ function buildOpenApiDocument(req) {
           type: "apiKey",
           in: "header",
           name: "X-API-Key",
-          description: "Installation-specific device API key returned when an administrator creates an installation through POST /solar/v1/installations. Paste the key here without quotes or a Bearer prefix. Swagger sends it in the X-API-Key header. The key authorizes reading submissions only for its associated active installation. User JWTs cannot authenticate telemetry ingestion. Installation-bound device key for POST /solar/v1/installations/{id}/readings only. User JWTs are not accepted here."
+          description: "Installation-specific API key returned once by POST /solar/v1/installations. Paste that existing api_key here with no quotes and no Bearer prefix. Swagger stores this value and sends it as the X-API-Key header on endpoints that require device authentication. The key authorizes reading submissions only for its associated active installation. Human Bearer tokens are a separate Authorize scheme and cannot be used here."
         }
       },
       responses: componentResponses,

@@ -1,5 +1,5 @@
 const { randomBytes } = require("node:crypto");
-const { Installation, Reading, Substation } = require("../models");
+const { Installation, Reading, Substation, District, Province } = require("../models");
 const { nextUnusedId } = require("../models/counter");
 const {
   installationCreateSchema, installationWriteSchema, installationPatchSchema,
@@ -30,8 +30,7 @@ async function create(req, res) {
   noQuery(req);
   requireJson(req);
   const body = installationCreateSchema.parse(req.body);
-  const substation = await Substation.findOne({ id: body.substation_id }).lean();
-  if (!substation) fail(404, "RESOURCE_NOT_FOUND", "Substation not found");
+  await requireSubstationOnDistrictProvince(body.substation_id);
   const apiKey = randomBytes(32).toString("hex");
   const row = await Installation.create({
     id: await nextUnusedId("installation", Installation),
@@ -47,6 +46,22 @@ async function create(req, res) {
   });
 }
 
+async function requireSubstationOnDistrictProvince(substationId) {
+  const substation = await Substation.findOne({ id: substationId }).lean();
+  if (!substation) fail(404, "RESOURCE_NOT_FOUND", "Substation not found");
+  const district = await District.findOne({ id: substation.district_id }).lean();
+  if (!district) fail(404, "RESOURCE_NOT_FOUND", "District not found");
+  const province = await Province.findOne({ id: district.province_id }).lean();
+  if (!province) fail(404, "RESOURCE_NOT_FOUND", "Province not found");
+  return substation;
+}
+
+async function requireExistingSubstation(substationId) {
+  const substation = await Substation.findOne({ id: substationId }).lean();
+  if (!substation) fail(404, "RESOURCE_NOT_FOUND", "Substation not found");
+  return substation;
+}
+
 async function replace(req, res) {
   noQuery(req);
   requireJson(req);
@@ -54,6 +69,7 @@ async function replace(req, res) {
   const body = installationWriteSchema.parse(req.body);
   const current = await Installation.findOne({ id, deleted_at: null }).lean();
   if (!current) fail(404, "RESOURCE_NOT_FOUND", "Solar installation not found");
+  await requireExistingSubstation(body.substation_id);
   const row = await Installation.findOneAndUpdate(
     { id, deleted_at: null },
     {
@@ -78,6 +94,7 @@ async function patch(req, res) {
   if (Object.keys(body).length === 0) fail(400, "VALIDATION_ERROR", "Validation failed");
   const current = await Installation.findOne({ id, deleted_at: null }).lean();
   if (!current) fail(404, "RESOURCE_NOT_FOUND", "Solar installation not found");
+  if (body.substation_id != null) await requireExistingSubstation(body.substation_id);
   const row = await Installation.findOneAndUpdate({ id, deleted_at: null }, { $set: body }, { new: true }).lean();
   res.json(present.installation(row));
 }
